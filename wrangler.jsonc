@@ -8,7 +8,7 @@
     "binding": "ASSETS"
   },
   "vars": {
-    "AI_BASE_URL": "https://api.openai.com",
-    "AI_MODEL": "gpt-4.1-mini"
+    "AI_BASE_URL": "https://integrate.api.nvidia.com/v1",
+    "AI_MODEL": "z-ai/glm-5.1"
   }
 }
