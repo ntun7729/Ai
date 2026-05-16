@@ -19,7 +19,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/health" && req.method === "GET") {
-      sendJson(res, 200, { ok: true, mode: "node-local" });
+      sendJson(res, 200, getHealthInfo(env));
       return;
     }
 
@@ -36,8 +36,13 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => {
+  const health = getHealthInfo(env);
   console.log(`Local fallback server running at http://${host}:${port}`);
   console.log("Use this only when wrangler dev cannot start in your environment.");
+  console.log(`AI_BASE_URL: ${health.aiBaseUrl}`);
+  console.log(`AI_CHAT_URL: ${health.aiChatUrl}`);
+  console.log(`AI_MODEL: ${health.aiModel}`);
+  console.log(`AI_API_KEY loaded: ${health.hasApiKey ? "yes" : "no"}`);
 });
 
 async function handleChat(req, res, env) {
@@ -48,9 +53,9 @@ async function handleChat(req, res, env) {
     return;
   }
 
-  const baseUrl = String(env.AI_BASE_URL || "https://api.openai.com").replace(/\/+$/, "");
+  const baseUrl = getBaseUrl(env);
   const apiKey = String(env.AI_API_KEY || "").trim();
-  const model = String(env.AI_MODEL || "gpt-4.1-mini").trim();
+  const model = getModel(env);
 
   if (!apiKey) {
     sendJson(res, 500, { error: "Missing AI_API_KEY in .dev.vars" });
@@ -73,7 +78,14 @@ async function handleChat(req, res, env) {
   const data = await response.json();
 
   if (!response.ok) {
-    sendJson(res, response.status, { error: data?.error?.message || `AI provider returned HTTP ${response.status}` });
+    sendJson(res, response.status, {
+      error: data?.error?.message || `AI provider returned HTTP ${response.status}`,
+      provider: {
+        baseUrl,
+        chatUrl: getChatCompletionsUrl(baseUrl),
+        model,
+      },
+    });
     return;
   }
 
@@ -82,6 +94,28 @@ async function handleChat(req, res, env) {
     model: data?.model,
     usage: data?.usage,
   });
+}
+
+function getHealthInfo(env) {
+  const baseUrl = getBaseUrl(env);
+  const model = getModel(env);
+
+  return {
+    ok: true,
+    mode: "node-local",
+    aiBaseUrl: baseUrl,
+    aiChatUrl: getChatCompletionsUrl(baseUrl),
+    aiModel: model,
+    hasApiKey: Boolean(String(env.AI_API_KEY || "").trim()),
+  };
+}
+
+function getBaseUrl(env) {
+  return String(env.AI_BASE_URL || "https://api.openai.com").replace(/\/+$/, "");
+}
+
+function getModel(env) {
+  return String(env.AI_MODEL || "gpt-4.1-mini").trim();
 }
 
 function getChatCompletionsUrl(baseUrl) {
@@ -121,8 +155,12 @@ async function loadDevVars(path) {
   const text = await readFile(path, "utf8");
 
   for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
+    let trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
+
+    if (trimmed.startsWith("export ")) {
+      trimmed = trimmed.slice("export ".length).trim();
+    }
 
     const index = trimmed.indexOf("=");
     if (index === -1) continue;
