@@ -56,17 +56,19 @@ async function handleChat(req, res, env) {
   const baseUrl = getBaseUrl(env);
   const apiKey = String(env.AI_API_KEY || "").trim();
   const model = getModel(env);
+  const chatUrl = getChatCompletionsUrl(baseUrl);
 
   if (!apiKey) {
     sendJson(res, 500, { error: "Missing AI_API_KEY in .dev.vars" });
     return;
   }
 
-  const response = await fetch(getChatCompletionsUrl(baseUrl), {
+  const response = await fetch(chatUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      Accept: "application/json",
     },
     body: JSON.stringify({
       model,
@@ -75,14 +77,15 @@ async function handleChat(req, res, env) {
     }),
   });
 
-  const data = await response.json();
+  const text = await response.text();
+  const data = parseProviderJson(text, chatUrl, model);
 
   if (!response.ok) {
     sendJson(res, response.status, {
       error: data?.error?.message || `AI provider returned HTTP ${response.status}`,
       provider: {
         baseUrl,
-        chatUrl: getChatCompletionsUrl(baseUrl),
+        chatUrl,
         model,
       },
     });
@@ -94,6 +97,15 @@ async function handleChat(req, res, env) {
     model: data?.model,
     usage: data?.usage,
   });
+}
+
+function parseProviderJson(text, chatUrl, model) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const preview = text.slice(0, 500) || "empty response body";
+    throw new Error(`AI provider returned non-JSON response from ${chatUrl} using model ${model}: ${preview}`);
+  }
 }
 
 function getHealthInfo(env) {
