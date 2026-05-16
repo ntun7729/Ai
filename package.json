@@ -1,0 +1,17 @@
+{
+  "name": "ai-website-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "typescript": "latest",
+    "wrangler": "latest"
+  }
+}
