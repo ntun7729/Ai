@@ -7,12 +7,12 @@ export interface AppConfig {
 }
 
 export function getConfig(env: Env): AppConfig {
-  const apiKey = env.AI_API_KEY?.trim();
-  const baseUrl = trimTrailingSlash(env.AI_BASE_URL || "https://api.openai.com");
-  const model = env.AI_MODEL?.trim() || "gpt-4.1-mini";
+  const apiKey = (env.AI_API_KEY || env.NVIDIA_API_KEY || "").trim();
+  const baseUrl = trimTrailingSlash(env.AI_BASE_URL || "https://integrate.api.nvidia.com/v1");
+  const model = env.AI_MODEL?.trim() || "z-ai/glm-5.1";
 
   if (!apiKey) {
-    throw new Error("Missing AI_API_KEY secret");
+    throw new Error("Missing AI_API_KEY or NVIDIA_API_KEY secret");
   }
 
   return { apiKey, baseUrl, model };
