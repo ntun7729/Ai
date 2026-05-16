@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ai-website-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-16",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "AI_BASE_URL": "https://api.openai.com",
+    "AI_MODEL": "gpt-4.1-mini"
+  }
+}
