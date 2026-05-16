@@ -5,7 +5,7 @@ export async function createChatCompletion(
   config: AppConfig,
   messages: ChatMessage[],
 ): Promise<ChatCompletionResponse> {
-  const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+  const response = await fetch(getChatCompletionsUrl(config.baseUrl), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -26,4 +26,11 @@ export async function createChatCompletion(
   }
 
   return data;
+}
+
+export function getChatCompletionsUrl(baseUrl: string): string {
+  const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
+  const suffix = cleanBaseUrl.endsWith("/v1") ? "/chat/completions" : "/v1/chat/completions";
+
+  return `${cleanBaseUrl}${suffix}`;
 }
