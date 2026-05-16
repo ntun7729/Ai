@@ -9,8 +9,14 @@ export interface ChatRequestBody {
   messages: ChatMessage[];
 }
 
+export interface ChatCompletionDelta {
+  content?: string;
+  reasoning_content?: string;
+}
+
 export interface ChatCompletionChoice {
   message?: ChatMessage;
+  delta?: ChatCompletionDelta;
   finish_reason?: string;
 }
 
