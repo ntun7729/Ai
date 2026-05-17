@@ -14,10 +14,10 @@ export interface ImageUrlContentPart {
 
 export interface RuntimeSettings {
   providerBaseUrl?: string;
+  providerToken?: string;
   logsEnabled?: boolean;
   webFetchEnabled?: boolean;
   googleSearchEnabled?: boolean;
-  browserCredential?: string;
 }
 
 export type ChatContentPart = TextContentPart | ImageUrlContentPart;
@@ -34,6 +34,8 @@ export interface ChatRequestBody {
   thinking?: boolean;
   webSearch?: boolean;
   memory?: boolean;
+  conversationId?: string;
+  conversationTitle?: string;
   runtime?: RuntimeSettings;
 }
 
