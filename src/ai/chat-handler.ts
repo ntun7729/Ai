@@ -1,5 +1,6 @@
 import { getConfig } from "../config/env";
 import { errorResponse, jsonResponse } from "../http/json";
+import { buildSearchContext } from "../search/web-search";
 import type { Env } from "../types/env";
 import { createChatCompletion } from "./client";
 import type { ChatMessage } from "./types";
@@ -8,13 +9,17 @@ import { parseChatRequest } from "./validation";
 export async function handleChat(request: Request, env: Env): Promise<Response> {
   try {
     const body = await request.json();
-    const { messages, model, thinking } = parseChatRequest(body);
+    const parsed = parseChatRequest(body);
     const config = getConfig(env);
-    const selectedModel = model || config.model;
+    const selectedModel = parsed.model || config.model;
+    const preparedMessages = parsed.webSearch
+      ? await addWebResults(env, parsed.messages)
+      : parsed.messages;
+
     const completion = await createChatCompletion(
       { ...config, model: selectedModel },
-      messages,
-      { thinking: shouldSendThinking(selectedModel, Boolean(thinking)) },
+      preparedMessages,
+      { thinking: shouldSendThinking(selectedModel, Boolean(parsed.thinking)) },
     );
     const answer = getTextContent(completion.choices?.[0]?.message?.content);
 
@@ -29,6 +34,19 @@ export async function handleChat(request: Request, env: Env): Promise<Response> 
 
     return errorResponse(message, status);
   }
+}
+
+async function addWebResults(env: Env, messages: ChatMessage[]): Promise<ChatMessage[]> {
+  const context = await buildSearchContext(env, messages);
+  if (!context) return messages;
+
+  return [
+    ...messages,
+    {
+      role: "system",
+      content: context,
+    },
+  ];
 }
 
 function shouldSendThinking(model: string, thinking: boolean): boolean {
