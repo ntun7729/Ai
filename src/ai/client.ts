@@ -5,11 +5,32 @@ export interface ProviderModel {
   id: string;
 }
 
+export interface ChatOptions {
+  thinking: boolean;
+}
+
 export async function createChatCompletion(
   config: AppConfig,
   messages: ChatMessage[],
+  options: ChatOptions = { thinking: false },
 ): Promise<ChatCompletionResponse> {
   const chatUrl = getChatCompletionsUrl(config.baseUrl);
+  const payload: Record<string, unknown> = {
+    model: config.model,
+    messages,
+    temperature: 1,
+    top_p: 1,
+    max_tokens: 16384,
+    stream: true,
+  };
+
+  if (options.thinking) {
+    payload.chat_template_kwargs = {
+      enable_thinking: true,
+      clear_thinking: false,
+    };
+  }
+
   const response = await fetch(chatUrl, {
     method: "POST",
     headers: {
@@ -17,14 +38,7 @@ export async function createChatCompletion(
       "Content-Type": "application/json",
       Accept: "text/event-stream, application/json",
     },
-    body: JSON.stringify({
-      model: config.model,
-      messages,
-      temperature: 1,
-      top_p: 1,
-      max_tokens: 16384,
-      stream: true,
-    }),
+    body: JSON.stringify(payload),
   });
 
   const text = await response.text();
