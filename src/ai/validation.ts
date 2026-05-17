@@ -1,6 +1,7 @@
 import type { ChatMessage, ChatRequestBody } from "./types";
 
 const VALID_ROLES = new Set(["system", "user", "assistant"]);
+const VALID_MODELS = new Set(["openai/gpt-oss-120b", "z-ai/glm-5.1"]);
 
 export function parseChatRequest(input: unknown): ChatRequestBody {
   if (!isRecord(input)) {
@@ -17,7 +18,10 @@ export function parseChatRequest(input: unknown): ChatRequestBody {
     throw new Error("Messages array cannot be empty");
   }
 
-  return { messages };
+  return {
+    messages,
+    model: parseModel(input.model),
+  };
 }
 
 function parseMessage(value: unknown): ChatMessage {
@@ -37,6 +41,19 @@ function parseMessage(value: unknown): ChatMessage {
     role: value.role as ChatMessage["role"],
     content: value.content.trim(),
   };
+}
+
+function parseModel(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return undefined;
+  }
+
+  const model = value.trim();
+  if (!VALID_MODELS.has(model)) {
+    throw new Error("Unsupported model selected");
+  }
+
+  return model;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
