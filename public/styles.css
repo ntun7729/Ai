@@ -34,11 +34,13 @@ body {
 }
 
 button,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
-button {
+button,
+select {
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -89,7 +91,8 @@ button {
 .mobile-title,
 .mobile-subtitle,
 .conversation-header p,
-.composer-note {
+.composer-note,
+.empty-conversations {
   margin: 0;
 }
 
@@ -100,13 +103,15 @@ button {
 
 .brand-subtitle,
 .mobile-subtitle,
-.sidebar-footer p {
+.sidebar-footer p,
+.empty-conversations,
+.model-picker label {
   color: var(--muted);
   font-size: 0.78rem;
 }
 
 .new-chat-button,
-.sidebar-nav a,
+.conversation-item,
 .prompt-chip,
 .icon-button,
 .send-button {
@@ -114,21 +119,46 @@ button {
   cursor: pointer;
 }
 
-.new-chat-button {
+.new-chat-button,
+.conversation-item {
   background: transparent;
-  border: 1px solid var(--line);
   border-radius: 12px;
   color: var(--text);
   padding: 12px 14px;
   text-align: left;
-  transition: background 160ms ease, border-color 160ms ease;
+  width: 100%;
+}
+
+.new-chat-button {
+  border: 1px solid var(--line);
 }
 
 .new-chat-button:hover,
-.sidebar-nav a:hover,
+.conversation-item:hover,
 .prompt-chip:hover,
 .icon-button:hover {
   background: var(--panel-hover);
+}
+
+.model-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.model-picker select {
+  appearance: none;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 11px 12px;
+  width: 100%;
+}
+
+.model-picker select:focus {
+  border-color: rgba(255, 255, 255, 0.28);
+  outline: none;
 }
 
 .sidebar-nav {
@@ -146,19 +176,19 @@ button {
   padding: 8px 8px 4px;
 }
 
-.sidebar-nav a {
-  border-radius: 10px;
-  color: var(--text);
-  font-size: 0.91rem;
-  overflow: hidden;
-  padding: 10px;
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.conversation-list {
+  display: grid;
+  gap: 4px;
 }
 
-.sidebar-nav a[aria-current="page"] {
-  background: var(--panel-soft);
+.empty-conversations {
+  padding: 10px 8px;
+}
+
+.conversation-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-footer {
@@ -279,11 +309,6 @@ h1 {
   min-height: 58px;
   padding: 13px 15px;
   text-align: left;
-  transition: background 160ms ease, transform 160ms ease;
-}
-
-.prompt-chip:hover {
-  transform: translateY(-1px);
 }
 
 .messages {
@@ -406,12 +431,7 @@ textarea::placeholder {
   height: 38px;
   line-height: 1;
   place-items: center;
-  transition: opacity 160ms ease, transform 160ms ease;
   width: 38px;
-}
-
-.send-button:hover:not(:disabled) {
-  transform: translateY(-1px);
 }
 
 .send-button:disabled {
@@ -476,10 +496,6 @@ body.sidebar-open .sidebar {
   .conversation-header {
     padding: 22px 0 18px;
     text-align: left;
-  }
-
-  .model-badge {
-    margin-bottom: 14px;
   }
 
   .prompt-grid {
