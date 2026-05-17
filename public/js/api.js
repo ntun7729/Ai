@@ -15,3 +15,17 @@ export async function sendChat(messages, model) {
 
   return data.answer || "";
 }
+
+export async function fetchModels() {
+  const response = await fetch("/api/models");
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Failed to load models");
+  }
+
+  return {
+    models: Array.isArray(data.models) ? data.models : [],
+    defaultModel: data.defaultModel || "",
+  };
+}
