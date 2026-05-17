@@ -1,3 +1,4 @@
+import { hasPrivilegedRuntime, isAdminAuthenticated } from "../admin/auth";
 import { getConfig } from "../config/env";
 import { errorResponse, jsonResponse } from "../http/json";
 import { addMemoryContext, captureMemoryFromText, latestUserText } from "../memory/store";
@@ -11,6 +12,11 @@ export async function handleChat(request: Request, env: Env): Promise<Response> 
   try {
     const body = await request.json();
     const parsed = parseChatRequest(body);
+
+    if (hasPrivilegedRuntime(parsed.runtime) && !(await isAdminAuthenticated(request, env))) {
+      return errorResponse("Admin login required for provider, log, and crawler overrides", 401);
+    }
+
     const config = getConfig(env, parsed.runtime);
     const selectedModel = parsed.model || config.model;
     const memoryEnabled = parsed.memory !== false;
