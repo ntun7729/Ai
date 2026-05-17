@@ -21,6 +21,7 @@ export function parseChatRequest(input: unknown): ChatRequestBody {
   return {
     messages,
     model: parseModel(input.model),
+    thinking: input.thinking === true,
   };
 }
 
