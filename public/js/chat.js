@@ -10,6 +10,15 @@ import {
   setupMobileSidebar,
 } from "./dom.js";
 
+const BAD_TITLE_STARTS = [
+  "the user",
+  "user gave",
+  "assistant",
+  "conversation",
+  "response",
+  "answer",
+];
+
 function createSystemMessage(model) {
   return {
     role: "system",
@@ -108,10 +117,11 @@ async function maybeGenerateSessionTitle(elements, session, userText, answer) {
       assistantMessage: answer,
     });
 
-    session.title = cleanTitle(title) || session.title;
+    session.title = cleanTitle(title) || makeConversationTitle(userText);
     session.titleStatus = "ai";
   } catch (error) {
     console.warn("Failed to generate chat title", error);
+    session.title = makeConversationTitle(userText);
     session.titleStatus = "fallback";
   } finally {
     renderSidebar(elements);
@@ -238,16 +248,24 @@ function getActiveSession() {
 }
 
 function makeConversationTitle(text) {
-  return text.length > 32 ? `${text.slice(0, 32)}...` : text;
+  const clean = String(text || "").replace(/[.!?]+$/g, "").trim();
+  return clean.length > 32 ? `${clean.slice(0, 32)}...` : clean;
 }
 
 function cleanTitle(title) {
-  return String(title || "")
+  const cleaned = String(title || "")
     .replace(/^Title:\s*/i, "")
     .replace(/["'`]/g, "")
     .replace(/[.!?]+$/g, "")
     .trim()
     .split(/\s+/)
-    .slice(0, 8)
+    .slice(0, 6)
     .join(" ");
+
+  const lower = cleaned.toLowerCase();
+  if (BAD_TITLE_STARTS.some((start) => lower.startsWith(start))) {
+    return "";
+  }
+
+  return cleaned;
 }
