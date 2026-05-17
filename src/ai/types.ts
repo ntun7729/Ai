@@ -7,6 +7,7 @@ export interface ChatMessage {
 
 export interface ChatRequestBody {
   messages: ChatMessage[];
+  model?: string;
 }
 
 export interface ChatCompletionDelta {
