@@ -13,6 +13,11 @@ export function getChatElements() {
   const conversationList = document.querySelector("#conversation-list");
   const newChatButton = document.querySelector("#new-chat-button");
   const thinkingToggle = document.querySelector("#thinking-toggle");
+  const attachmentButton = document.querySelector("#attachment-button");
+  const attachmentMenu = document.querySelector("#attachment-menu");
+  const attachmentPreview = document.querySelector("#attachment-preview");
+  const imageInput = document.querySelector("#image-input");
+  const fileInput = document.querySelector("#file-input");
 
   if (!form || !prompt || !sendButton || !messages || !conversation || !modelSelect || !thinkingToggle) {
     throw new Error("Chat UI is missing required elements");
@@ -33,6 +38,11 @@ export function getChatElements() {
     conversationList,
     newChatButton,
     thinkingToggle,
+    attachmentButton,
+    attachmentMenu,
+    attachmentPreview,
+    imageInput,
+    fileInput,
   };
 }
 
@@ -137,6 +147,46 @@ export function setupMobileSidebar({ menuButton, sidebarBackdrop }) {
     if (event.key === "Escape") {
       closeSidebar();
     }
+  });
+}
+
+export function setupAttachmentPlaceholder(elements) {
+  const { attachmentButton, attachmentMenu, imageInput, fileInput, attachmentPreview } = elements;
+  if (!attachmentButton || !attachmentMenu || !attachmentPreview) return;
+
+  const closeMenu = () => {
+    attachmentMenu.hidden = true;
+    attachmentButton.setAttribute("aria-expanded", "false");
+  };
+
+  attachmentButton.addEventListener("click", () => {
+    const open = attachmentMenu.hidden;
+    attachmentMenu.hidden = !open;
+    attachmentButton.setAttribute("aria-expanded", String(open));
+  });
+
+  attachmentMenu.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-attachment-action]");
+    if (!button) return;
+    closeMenu();
+    if (button.dataset.attachmentAction === "image") imageInput?.click();
+    if (button.dataset.attachmentAction === "file") fileInput?.click();
+  });
+
+  for (const input of [imageInput, fileInput]) {
+    input?.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      attachmentPreview.hidden = false;
+      attachmentPreview.textContent = `Attached: ${file.name} - upload support coming next`;
+      input.value = "";
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    if (attachmentMenu.hidden) return;
+    if (attachmentMenu.contains(event.target) || attachmentButton.contains(event.target)) return;
+    closeMenu();
   });
 }
 
