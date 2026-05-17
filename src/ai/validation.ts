@@ -25,6 +25,7 @@ export function parseChatRequest(input: unknown): ChatRequestBody {
     thinking: input.thinking === true,
     webSearch: input.webSearch === true,
     memory: input.memory !== false,
+    stream: input.stream === true,
     conversationId: parseOptionalText(input.conversationId, 120),
     conversationTitle: parseOptionalText(input.conversationTitle, 120),
     runtime: parseRuntime(input.runtime),
