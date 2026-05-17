@@ -17,8 +17,8 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
       return errorResponse("ADMIN_PASSWORD is not configured", 500);
     }
 
-    const body = await request.json().catch(() => ({}));
-    const password = typeof body.password === "string" ? body.password : "";
+    const body = await request.json().catch((): unknown => ({}));
+    const password = isRecord(body) && typeof body.password === "string" ? body.password : "";
     const ok = await verifyAdminPassword(password, env);
     if (!ok) return errorResponse("Invalid admin password", 401);
 
@@ -34,4 +34,8 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
   }
 
   return errorResponse("Admin route not found", 404);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
