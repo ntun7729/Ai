@@ -1,4 +1,4 @@
-import { fetchModels, generateTitle, sendChat } from "./api.js";
+import { fetchModels, sendChat } from "./api.js";
 import {
   addMessage,
   autoResizeTextarea,
@@ -7,22 +7,16 @@ import {
   renderMessages,
   setLoading,
   setModelLabels,
+  setupAttachmentPlaceholder,
   setupMobileSidebar,
 } from "./dom.js";
 
-const BAD_TITLE_STARTS = [
-  "the user",
-  "user gave",
-  "assistant",
-  "conversation",
-  "response",
-  "answer",
-];
+const STOP_WORDS = new Set(["a", "an", "the", "is", "are", "to", "of", "and", "or", "in", "on", "for", "with", "what", "where", "when", "why", "how"]);
 
 function createSystemMessage(model) {
   return {
     role: "system",
-    content: `You are a helpful AI assistant on a small website. The selected provider model id is ${model}. If the user asks which model you are, answer with exactly this model id: ${model}.`,
+    content: `You are a helpful AI assistant on a small website. The selected provider model id is ${model}. If asked which model you are, answer with exactly this model id: ${model}.`,
   };
 }
 
@@ -31,7 +25,6 @@ function createSession(model) {
     id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
     model,
     title: "New chat",
-    titleStatus: "pending",
     hasUserMessage: false,
     messages: [createSystemMessage(model)],
     displayMessages: [{ role: "assistant", content: `New chat started with ${model}.` }],
@@ -42,9 +35,10 @@ let sessions = [];
 let activeSessionId = "";
 
 export function setupChat(elements) {
-  const { form, prompt, sendButton, promptChips, modelSelect, modelBadge, mobileModelLabel, newChatButton } = elements;
+  const { form, prompt, promptChips, modelSelect, modelBadge, mobileModelLabel, newChatButton } = elements;
 
   setupMobileSidebar(elements);
+  setupAttachmentPlaceholder(elements);
   setupPromptInput(prompt, form);
   setupPromptChips(promptChips, prompt);
   setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements);
@@ -76,10 +70,7 @@ async function submitMessage(elements) {
   autoResizeTextarea(prompt);
 
   session.hasUserMessage = true;
-  if (session.title === "New chat") {
-    session.title = makeConversationTitle(userText);
-    session.titleStatus = "fallback";
-  }
+  if (session.title === "New chat") session.title = makeLocalTitle(userText);
   session.messages.push({ role: "user", content: userText });
   session.displayMessages.push({ role: "user", content: userText });
   addMessage(messages, "user", userText);
@@ -87,13 +78,10 @@ async function submitMessage(elements) {
   setLoading(sendButton, true);
 
   try {
-    const answer = await sendChat(session.messages, modelSelect.value, {
-      thinking: thinkingToggle.checked,
-    });
+    const answer = await sendChat(session.messages, modelSelect.value, { thinking: thinkingToggle.checked });
     session.messages.push({ role: "assistant", content: answer });
     session.displayMessages.push({ role: "assistant", content: answer || "No answer returned." });
     addMessage(messages, "assistant", answer || "No answer returned.");
-    maybeGenerateSessionTitle(elements, session, userText, answer);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Something went wrong.";
     session.displayMessages.push({ role: "error", content: message });
@@ -104,36 +92,10 @@ async function submitMessage(elements) {
   }
 }
 
-async function maybeGenerateSessionTitle(elements, session, userText, answer) {
-  if (!answer || session.titleStatus === "ai") return;
-
-  session.titleStatus = "generating";
-  renderSidebar(elements);
-
-  try {
-    const title = await generateTitle({
-      model: session.model,
-      userMessage: userText,
-      assistantMessage: answer,
-    });
-
-    session.title = cleanTitle(title) || makeConversationTitle(userText);
-    session.titleStatus = "ai";
-  } catch (error) {
-    console.warn("Failed to generate chat title", error);
-    session.title = makeConversationTitle(userText);
-    session.titleStatus = "fallback";
-  } finally {
-    renderSidebar(elements);
-  }
-}
-
 function setupPromptInput(prompt, form) {
   prompt.addEventListener("input", () => autoResizeTextarea(prompt));
-
   prompt.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.shiftKey) return;
-
     event.preventDefault();
     form.requestSubmit();
   });
@@ -151,7 +113,6 @@ function setupPromptChips(promptChips, prompt) {
 
 function setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements) {
   setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
-
   modelSelect.addEventListener("change", () => {
     setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
     startNewSession(elements, modelSelect.value, true);
@@ -160,27 +121,19 @@ function setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements) {
 
 async function loadProviderModels(modelSelect, modelBadge, mobileModelLabel, elements) {
   const existingModel = modelSelect.value;
-
   try {
     const { models, defaultModel } = await fetchModels();
     if (models.length === 0) return;
-
-    const preferredModel = models.some((model) => model.id === existingModel)
-      ? existingModel
-      : defaultModel || models[0].id;
-
+    const preferredModel = models.some((model) => model.id === existingModel) ? existingModel : defaultModel || models[0].id;
     modelSelect.textContent = "";
-
     for (const model of models) {
       const option = document.createElement("option");
       option.value = model.id;
       option.textContent = model.id;
       modelSelect.append(option);
     }
-
     modelSelect.value = preferredModel;
     setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
-
     const session = getActiveSession();
     if (session && !session.hasUserMessage) {
       session.model = preferredModel;
@@ -195,17 +148,12 @@ async function loadProviderModels(modelSelect, modelBadge, mobileModelLabel, ele
 
 function setupNewChat(newChatButton, elements) {
   if (!newChatButton) return;
-
-  newChatButton.addEventListener("click", () => {
-    startNewSession(elements, elements.modelSelect.value, true);
-  });
+  newChatButton.addEventListener("click", () => startNewSession(elements, elements.modelSelect.value, true));
 }
 
 function startNewSession(elements, model, showNotice) {
   const session = createSession(model);
-  session.displayMessages = [
-    { role: "assistant", content: showNotice ? `New chat started with ${model}.` : "Hi! Ask me something and I will help." },
-  ];
+  session.displayMessages = [{ role: "assistant", content: showNotice ? `New chat started with ${model}.` : "Hi! Ask me something and I will help." }];
   sessions.unshift(session);
   activeSessionId = session.id;
   document.body.classList.remove("has-chat");
@@ -218,7 +166,6 @@ function startNewSession(elements, model, showNotice) {
 function selectSession(elements, sessionId) {
   const session = sessions.find((item) => item.id === sessionId);
   if (!session) return;
-
   activeSessionId = sessionId;
   elements.modelSelect.value = session.model;
   setModelLabels(session.model, elements.modelBadge, elements.mobileModelLabel);
@@ -231,41 +178,27 @@ function selectSession(elements, sessionId) {
 function renderActiveSession(elements) {
   const session = getActiveSession();
   if (!session) return;
-
   clearMessages(elements.messages);
   renderMessages(elements.messages, session.displayMessages);
   renderSidebar(elements);
 }
 
 function renderSidebar(elements) {
-  renderConversationList(elements.conversationList, sessions, activeSessionId, (sessionId) => {
-    selectSession(elements, sessionId);
-  });
+  renderConversationList(elements.conversationList, sessions, activeSessionId, (sessionId) => selectSession(elements, sessionId));
 }
 
 function getActiveSession() {
   return sessions.find((session) => session.id === activeSessionId);
 }
 
-function makeConversationTitle(text) {
-  const clean = String(text || "").replace(/[.!?]+$/g, "").trim();
-  return clean.length > 32 ? `${clean.slice(0, 32)}...` : clean;
-}
-
-function cleanTitle(title) {
-  const cleaned = String(title || "")
-    .replace(/^Title:\s*/i, "")
-    .replace(/["'`]/g, "")
+function makeLocalTitle(text) {
+  const words = String(text || "")
     .replace(/[.!?]+$/g, "")
+    .replace(/[^A-Za-z0-9\s-]/g, " ")
     .trim()
     .split(/\s+/)
-    .slice(0, 6)
-    .join(" ");
-
-  const lower = cleaned.toLowerCase();
-  if (BAD_TITLE_STARTS.some((start) => lower.startsWith(start))) {
-    return "";
-  }
-
-  return cleaned;
+    .filter(Boolean);
+  const useful = words.filter((word) => !STOP_WORDS.has(word.toLowerCase()));
+  const title = (useful.length ? useful : words).slice(0, 5).join(" ") || "New chat";
+  return title.length > 32 ? `${title.slice(0, 32)}...` : title;
 }
