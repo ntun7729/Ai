@@ -1,0 +1,135 @@
+@media (max-width: 1180px), (hover: none), (pointer: coarse) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .app-layout {
+    display: block;
+    height: 100vh;
+    height: 100dvh;
+    width: 100%;
+  }
+
+  .sidebar {
+    bottom: 0;
+    left: 0;
+    max-width: min(82vw, 320px);
+    position: fixed;
+    top: 0;
+    transform: translateX(-104%);
+    transition: transform 180ms ease;
+    width: 320px;
+  }
+
+  body.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .chat-shell {
+    height: 100vh;
+    height: 100dvh;
+    width: 100%;
+  }
+
+  .mobile-topbar {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg);
+  }
+
+  .conversation {
+    padding: 12px 14px 16px;
+  }
+
+  .conversation-header {
+    padding: 18px 0 16px;
+    text-align: left;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 11vw, 3rem);
+  }
+
+  .model-badge {
+    font-size: 0.74rem;
+    margin-bottom: 12px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .prompt-grid {
+    grid-template-columns: 1fr;
+    margin-bottom: 20px;
+  }
+
+  .prompt-chip {
+    min-height: 48px;
+    padding: 12px 14px;
+  }
+
+  .message-row,
+  .message-row.user {
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .message-row.user .avatar {
+    grid-column: 1;
+  }
+
+  .message.user {
+    justify-self: start;
+    max-width: 100%;
+  }
+
+  .avatar {
+    height: 30px;
+    width: 30px;
+  }
+
+  .composer-shell {
+    padding: 12px 12px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .chat-form {
+    border-radius: 24px;
+    max-width: 100%;
+  }
+
+  .composer-note {
+    display: none;
+  }
+}
+
+@media (max-width: 430px) {
+  .mobile-topbar {
+    min-height: 54px;
+  }
+
+  .conversation {
+    padding-inline: 12px;
+  }
+
+  .conversation-header p {
+    font-size: 0.92rem;
+  }
+
+  .messages {
+    gap: 15px;
+  }
+
+  .message {
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  .sidebar {
+    max-width: 86vw;
+  }
+}
