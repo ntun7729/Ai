@@ -7,8 +7,13 @@ export function getChatElements() {
   const sidebarBackdrop = document.querySelector("#sidebar-backdrop");
   const promptChips = Array.from(document.querySelectorAll(".prompt-chip"));
   const conversation = document.querySelector(".conversation");
+  const modelSelect = document.querySelector("#model-select");
+  const modelBadge = document.querySelector("#model-badge");
+  const mobileModelLabel = document.querySelector("#mobile-model-label");
+  const conversationList = document.querySelector("#conversation-list");
+  const newChatButton = document.querySelector("#new-chat-button");
 
-  if (!form || !prompt || !sendButton || !messages || !conversation) {
+  if (!form || !prompt || !sendButton || !messages || !conversation || !modelSelect) {
     throw new Error("Chat UI is missing required elements");
   }
 
@@ -21,6 +26,11 @@ export function getChatElements() {
     sidebarBackdrop,
     promptChips,
     conversation,
+    modelSelect,
+    modelBadge,
+    mobileModelLabel,
+    conversationList,
+    newChatButton,
   };
 }
 
@@ -47,6 +57,10 @@ export function addMessage(container, role, content) {
   return message;
 }
 
+export function clearMessages(container) {
+  container.textContent = "";
+}
+
 export function setLoading(sendButton, isLoading) {
   sendButton.disabled = isLoading;
   sendButton.textContent = isLoading ? "…" : "↑";
@@ -55,6 +69,29 @@ export function setLoading(sendButton, isLoading) {
 export function autoResizeTextarea(textarea) {
   textarea.style.height = "auto";
   textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+}
+
+export function setModelLabels(model, modelBadge, mobileModelLabel) {
+  if (modelBadge) modelBadge.textContent = model;
+  if (mobileModelLabel) mobileModelLabel.textContent = model;
+}
+
+export function addConversationItem(container, title) {
+  if (!container) return;
+
+  const empty = container.querySelector(".empty-conversations");
+  if (empty) empty.remove();
+
+  const button = document.createElement("button");
+  button.className = "conversation-item";
+  button.type = "button";
+  button.textContent = title;
+  container.prepend(button);
+}
+
+export function resetConversationList(container) {
+  if (!container) return;
+  container.innerHTML = '<p class="empty-conversations">No conversations yet</p>';
 }
 
 export function setupMobileSidebar({ menuButton, sidebarBackdrop }) {
