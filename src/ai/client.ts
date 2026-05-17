@@ -7,6 +7,8 @@ export interface ProviderModel {
 
 export interface ChatOptions {
   thinking: boolean;
+  maxTokens?: number;
+  temperature?: number;
 }
 
 export async function createChatCompletion(
@@ -18,9 +20,9 @@ export async function createChatCompletion(
   const payload: Record<string, unknown> = {
     model: config.model,
     messages,
-    temperature: 1,
+    temperature: options.temperature ?? 1,
     top_p: 1,
-    max_tokens: 16384,
+    max_tokens: options.maxTokens ?? 16384,
     stream: true,
   };
 
