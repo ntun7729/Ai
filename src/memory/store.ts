@@ -37,12 +37,13 @@ export async function listMemories(env: Env, userId = DEFAULT_USER_ID): Promise<
 }
 
 export async function addMemory(env: Env, content: string, options: { userId?: string; type?: string; source?: string } = {}): Promise<MemoryRecord | null> {
-  if (!env.DB) return null;
+  const db = env.DB;
+  if (!db) return null;
   const sanitized = sanitizeMemory(content);
   if (!sanitized) return null;
 
   const userId = options.userId || DEFAULT_USER_ID;
-  const existing = await findDuplicateMemory(env, userId, sanitized);
+  const existing = await findDuplicateMemory(db, userId, sanitized);
   if (existing) return existing;
 
   const now = Date.now();
@@ -57,7 +58,7 @@ export async function addMemory(env: Env, content: string, options: { userId?: s
     last_used_at: null,
   };
 
-  await env.DB.prepare(
+  await db.prepare(
     `INSERT INTO memories (id, user_id, content, type, source, created_at, updated_at, last_used_at, is_deleted)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
   ).bind(record.id, record.user_id, record.content, record.type, record.source, record.created_at, record.updated_at, record.last_used_at).run();
@@ -111,7 +112,7 @@ export async function addMemoryContext(env: Env, messages: ChatMessage[], enable
     ? [...messages, memoryMessage]
     : [...messages.slice(0, insertAt), memoryMessage, ...messages.slice(insertAt)];
 
-  await markMemoriesUsed(env, selected.map((memory) => memory.id));
+  await markMemoriesUsed(env.DB, selected.map((memory) => memory.id));
   return nextMessages;
 }
 
@@ -126,8 +127,8 @@ export function latestUserText(messages: ChatMessage[]): string {
   return "";
 }
 
-async function findDuplicateMemory(env: Env, userId: string, content: string): Promise<MemoryRecord | null> {
-  const row = await env.DB.prepare(
+async function findDuplicateMemory(db: D1Database, userId: string, content: string): Promise<MemoryRecord | null> {
+  const row = await db.prepare(
     `SELECT id, user_id, content, type, source, created_at, updated_at, last_used_at
      FROM memories
      WHERE user_id = ? AND is_deleted = 0 AND lower(content) = lower(?)
@@ -136,10 +137,10 @@ async function findDuplicateMemory(env: Env, userId: string, content: string): P
   return row || null;
 }
 
-async function markMemoriesUsed(env: Env, ids: string[]): Promise<void> {
+async function markMemoriesUsed(db: D1Database, ids: string[]): Promise<void> {
   if (!ids.length) return;
   const now = Date.now();
-  await Promise.all(ids.map((id) => env.DB!.prepare(
+  await Promise.all(ids.map((id) => db.prepare(
     `UPDATE memories SET last_used_at = ? WHERE id = ?`,
   ).bind(now, id).run()));
 }
