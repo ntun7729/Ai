@@ -1,4 +1,4 @@
-import { sendChat } from "./api.js";
+import { fetchModels, sendChat } from "./api.js";
 import {
   addConversationItem,
   addMessage,
@@ -26,6 +26,7 @@ export function setupChat(elements) {
   setupPromptChips(promptChips, prompt);
   setupModelPicker(modelSelect, modelBadge, mobileModelLabel);
   setupNewChat(newChatButton, elements);
+  loadProviderModels(modelSelect, modelBadge, mobileModelLabel);
 
   addMessage(messages, "assistant", "Hi! Ask me something and I will help.");
 
@@ -91,6 +92,33 @@ function setupModelPicker(modelSelect, modelBadge, mobileModelLabel) {
   modelSelect.addEventListener("change", () => {
     setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
   });
+}
+
+async function loadProviderModels(modelSelect, modelBadge, mobileModelLabel) {
+  const existingModel = modelSelect.value;
+
+  try {
+    const { models, defaultModel } = await fetchModels();
+    if (models.length === 0) return;
+
+    const preferredModel = models.some((model) => model.id === existingModel)
+      ? existingModel
+      : defaultModel || models[0].id;
+
+    modelSelect.textContent = "";
+
+    for (const model of models) {
+      const option = document.createElement("option");
+      option.value = model.id;
+      option.textContent = model.id;
+      modelSelect.append(option);
+    }
+
+    modelSelect.value = preferredModel;
+    setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
+  } catch (error) {
+    console.warn("Failed to load provider models", error);
+  }
 }
 
 function setupNewChat(newChatButton, elements) {
