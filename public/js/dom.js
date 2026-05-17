@@ -17,6 +17,7 @@ export function getChatElements() {
   const attachmentMenu = document.querySelector("#attachment-menu");
   const attachmentPreview = document.querySelector("#attachment-preview");
   const imageInput = document.querySelector("#image-input");
+  const cameraInput = document.querySelector("#camera-input");
   const fileInput = document.querySelector("#file-input");
 
   if (!form || !prompt || !sendButton || !messages || !conversation || !modelSelect || !thinkingToggle) {
@@ -42,6 +43,7 @@ export function getChatElements() {
     attachmentMenu,
     attachmentPreview,
     imageInput,
+    cameraInput,
     fileInput,
   };
 }
@@ -134,24 +136,18 @@ export function setupMobileSidebar({ menuButton, sidebarBackdrop }) {
   };
 
   menuButton.addEventListener("click", () => {
-    if (document.body.classList.contains("sidebar-open")) {
-      closeSidebar();
-    } else {
-      openSidebar();
-    }
+    if (document.body.classList.contains("sidebar-open")) closeSidebar();
+    else openSidebar();
   });
 
   sidebarBackdrop.addEventListener("click", closeSidebar);
-
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      closeSidebar();
-    }
+    if (event.key === "Escape") closeSidebar();
   });
 }
 
-export function setupAttachmentPlaceholder(elements) {
-  const { attachmentButton, attachmentMenu, imageInput, fileInput, attachmentPreview } = elements;
+export function setupAttachmentPicker(elements, onAttachmentSelected, onAttachmentCleared) {
+  const { attachmentButton, attachmentMenu, imageInput, cameraInput, fileInput, attachmentPreview } = elements;
   if (!attachmentButton || !attachmentMenu || !attachmentPreview) return;
 
   const closeMenu = () => {
@@ -160,9 +156,9 @@ export function setupAttachmentPlaceholder(elements) {
   };
 
   attachmentButton.addEventListener("click", () => {
-    const open = attachmentMenu.hidden;
-    attachmentMenu.hidden = !open;
-    attachmentButton.setAttribute("aria-expanded", String(open));
+    const willOpen = attachmentMenu.hidden;
+    attachmentMenu.hidden = !willOpen;
+    attachmentButton.setAttribute("aria-expanded", String(willOpen));
   });
 
   attachmentMenu.addEventListener("click", (event) => {
@@ -170,15 +166,15 @@ export function setupAttachmentPlaceholder(elements) {
     if (!button) return;
     closeMenu();
     if (button.dataset.attachmentAction === "image") imageInput?.click();
+    if (button.dataset.attachmentAction === "camera") cameraInput?.click();
     if (button.dataset.attachmentAction === "file") fileInput?.click();
   });
 
-  for (const input of [imageInput, fileInput]) {
+  for (const input of [imageInput, cameraInput, fileInput]) {
     input?.addEventListener("change", () => {
       const file = input.files?.[0];
       if (!file) return;
-      attachmentPreview.hidden = false;
-      attachmentPreview.textContent = `Attached: ${file.name} - upload support coming next`;
+      onAttachmentSelected(file);
       input.value = "";
     });
   }
@@ -188,13 +184,48 @@ export function setupAttachmentPlaceholder(elements) {
     if (attachmentMenu.contains(event.target) || attachmentButton.contains(event.target)) return;
     closeMenu();
   });
+
+  attachmentPreview.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-clear-attachment]");
+    if (!button) return;
+    attachmentPreview.hidden = true;
+    attachmentPreview.textContent = "";
+    onAttachmentCleared();
+  });
+}
+
+export function showAttachmentPreview(container, attachment) {
+  if (!container) return;
+  container.hidden = false;
+  container.textContent = "";
+
+  if (attachment.kind === "image") {
+    const img = document.createElement("img");
+    img.src = attachment.dataUrl;
+    img.alt = attachment.name;
+    container.append(img);
+  }
+
+  const label = document.createElement("span");
+  label.textContent = attachment.kind === "image" ? `Image: ${attachment.name}` : `File: ${attachment.name}`;
+
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.dataset.clearAttachment = "true";
+  clear.textContent = "Remove";
+
+  container.append(label, clear);
+}
+
+export function hideAttachmentPreview(container) {
+  if (!container) return;
+  container.hidden = true;
+  container.textContent = "";
 }
 
 function scrollMessages(container) {
   const scroller = container.closest(".conversation");
-  if (scroller) {
-    scroller.scrollTop = scroller.scrollHeight;
-  }
+  if (scroller) scroller.scrollTop = scroller.scrollHeight;
 }
 
 function getAvatarText(role) {
