@@ -1,4 +1,4 @@
-import type { ChatContent, ChatContentPart, ChatMessage, ChatRequestBody } from "./types";
+import type { ChatContent, ChatContentPart, ChatMessage, ChatRequestBody, RuntimeSettings } from "./types";
 
 const VALID_ROLES = new Set(["system", "user", "assistant"]);
 const MODEL_ID_PATTERN = /^[A-Za-z0-9._:/-]+$/;
@@ -24,7 +24,27 @@ export function parseChatRequest(input: unknown): ChatRequestBody {
     model: parseModel(input.model),
     thinking: input.thinking === true,
     webSearch: input.webSearch === true,
+    runtime: parseRuntime(input.runtime),
   };
+}
+
+function parseRuntime(value: unknown): RuntimeSettings | undefined {
+  if (!isRecord(value)) return undefined;
+
+  return {
+    providerBaseUrl: parseOptionalHttpUrl(value.providerBaseUrl),
+    logsEnabled: value.logsEnabled === true,
+    webFetchEnabled: value.webFetchEnabled !== false,
+    googleSearchEnabled: value.googleSearchEnabled !== false,
+  };
+}
+
+function parseOptionalHttpUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) return undefined;
+  const url = value.trim();
+  if (url.length > 240) throw new Error("Provider base URL is too long");
+  if (!isHttpUrl(url)) throw new Error("Provider base URL must be http or https");
+  return url;
 }
 
 function parseMessage(value: unknown): ChatMessage {
@@ -100,6 +120,15 @@ function parseModel(value: unknown): string | undefined {
   }
 
   return model;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
