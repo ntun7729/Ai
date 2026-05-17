@@ -24,6 +24,7 @@ export function parseChatRequest(input: unknown): ChatRequestBody {
     model: parseModel(input.model),
     thinking: input.thinking === true,
     webSearch: input.webSearch === true,
+    memory: input.memory !== false,
     runtime: parseRuntime(input.runtime),
   };
 }
