@@ -1,10 +1,11 @@
 import { hasPrivilegedRuntime, isAdminAuthenticated } from "../admin/auth";
 import { getConfig } from "../config/env";
+import { corsHeaders } from "../http/cors";
 import { errorResponse, jsonResponse } from "../http/json";
 import { addMemoryContext, captureMemoryFromText, latestUserText } from "../memory/store";
 import { buildSearchContext, messageHasUrl } from "../search/web-search";
 import type { Env } from "../types/env";
-import { createChatCompletion } from "./client";
+import { createChatCompletion, streamChatCompletion } from "./client";
 import type { ChatMessage } from "./types";
 import { parseChatRequest } from "./validation";
 
@@ -27,23 +28,25 @@ export async function handleChat(request: Request, env: Env): Promise<Response> 
 
     const withMemory = await addMemoryContext(env, parsed.messages, memoryEnabled);
     const shouldUseWeb = parsed.webSearch || messageHasUrl(withMemory);
-    const preparedMessages = shouldUseWeb
-      ? await addWebResults(env, withMemory)
-      : withMemory;
+    const preparedMessages = shouldUseWeb ? await addWebResults(env, withMemory) : withMemory;
+    const providerConfig = { ...config, model: selectedModel };
+    const thinking = shouldSendThinking(selectedModel, Boolean(parsed.thinking));
 
     log(config.logsEnabled, "chat.request", {
       model: selectedModel,
+      stream: parsed.stream === true,
       webSearch: shouldUseWeb,
       memory: memoryEnabled,
       memoryStorage: env.DB ? "d1" : "none",
       messageCount: preparedMessages.length,
     });
 
-    const completion = await createChatCompletion(
-      { ...config, model: selectedModel },
-      preparedMessages,
-      { thinking: shouldSendThinking(selectedModel, Boolean(parsed.thinking)) },
-    );
+    if (parsed.stream === true) {
+      const providerResponse = await streamChatCompletion(providerConfig, preparedMessages, { thinking });
+      return createClientStream(providerResponse, selectedModel);
+    }
+
+    const completion = await createChatCompletion(providerConfig, preparedMessages, { thinking });
     const answer = getTextContent(completion.choices?.[0]?.message?.content);
 
     return jsonResponse({
@@ -70,6 +73,95 @@ async function addWebResults(env: Env, messages: ChatMessage[]): Promise<ChatMes
       content: context,
     },
   ];
+}
+
+function createClientStream(providerResponse: Response, model: string): Response {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let sentAnyContent = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: string, data: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      };
+
+      try {
+        const body = providerResponse.body;
+        if (!body) {
+          send("error", { error: "Provider returned an empty stream" });
+          send("done", { model });
+          controller.close();
+          return;
+        }
+
+        const reader = body.getReader();
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          buffer = drainProviderSseBuffer(buffer, send, () => { sentAnyContent = true; });
+        }
+
+        buffer += decoder.decode();
+        drainProviderSseBuffer(`${buffer}\n\n`, send, () => { sentAnyContent = true; });
+
+        if (!sentAnyContent) {
+          send("error", { error: "The provider returned an empty answer. Please try again." });
+        }
+        send("done", { model });
+        controller.close();
+      } catch (error) {
+        send("error", { error: error instanceof Error ? error.message : "Stream failed" });
+        send("done", { model });
+        controller.close();
+      }
+    },
+  });
+
+  const headers = new Headers(corsHeaders());
+  headers.set("Content-Type", "text/event-stream; charset=utf-8");
+  headers.set("Cache-Control", "no-cache, no-transform");
+  headers.set("Connection", "keep-alive");
+  headers.set("X-Accel-Buffering", "no");
+
+  return new Response(stream, { headers });
+}
+
+function drainProviderSseBuffer(
+  buffer: string,
+  send: (event: string, data: Record<string, unknown>) => void,
+  markContent: () => void,
+): string {
+  const parts = buffer.split(/\n\n/);
+  const remainder = parts.pop() || "";
+
+  for (const part of parts) {
+    const dataLines = part.split(/\r?\n/).filter((line) => line.startsWith("data:"));
+    for (const line of dataLines) {
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+
+      const json = safeParseJson(payload);
+      const delta = json?.choices?.[0]?.delta;
+      const content = typeof delta?.content === "string" ? delta.content : "";
+      if (content) {
+        markContent();
+        send("delta", { content });
+      }
+    }
+  }
+
+  return remainder;
+}
+
+function safeParseJson(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 function shouldSendThinking(model: string, thinking: boolean): boolean {
