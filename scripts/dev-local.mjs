@@ -111,6 +111,7 @@ async function handleChat(req, res, env) {
   const baseUrl = getBaseUrl(env);
   const apiKey = getApiKey(env);
   const model = sanitizeModel(body.model) || getModel(env);
+  const thinking = body.thinking === true;
   const chatUrl = getChatCompletionsUrl(baseUrl);
   const messageCount = body.messages.length;
   const lastRole = body.messages.at(-1)?.role;
@@ -123,11 +124,28 @@ async function handleChat(req, res, env) {
 
   logEvent("chat.request", {
     model,
+    thinking,
     messageCount,
     lastRole,
     lastTextPreview: previewText(lastText),
     chatUrl,
   });
+
+  const payload = {
+    model,
+    messages: body.messages,
+    temperature: 1,
+    top_p: 1,
+    max_tokens: 16384,
+    stream: true,
+  };
+
+  if (thinking) {
+    payload.chat_template_kwargs = {
+      enable_thinking: true,
+      clear_thinking: false,
+    };
+  }
 
   const response = await fetch(chatUrl, {
     method: "POST",
@@ -136,20 +154,14 @@ async function handleChat(req, res, env) {
       "Content-Type": "application/json",
       Accept: "text/event-stream, application/json",
     },
-    body: JSON.stringify({
-      model,
-      messages: body.messages,
-      temperature: 1,
-      top_p: 1,
-      max_tokens: 16384,
-      stream: true,
-    }),
+    body: JSON.stringify(payload),
   });
 
   const text = await response.text();
 
   logEvent("chat.provider_response", {
     model,
+    thinking,
     status: response.status,
     durationMs: Date.now() - startedAt,
     bodyPreview: response.ok ? undefined : previewText(text),
@@ -163,6 +175,7 @@ async function handleChat(req, res, env) {
         baseUrl,
         chatUrl,
         model,
+        thinking,
         messageCount,
       },
     });
