@@ -12,8 +12,9 @@ export function getChatElements() {
   const mobileModelLabel = document.querySelector("#mobile-model-label");
   const conversationList = document.querySelector("#conversation-list");
   const newChatButton = document.querySelector("#new-chat-button");
+  const thinkingToggle = document.querySelector("#thinking-toggle");
 
-  if (!form || !prompt || !sendButton || !messages || !conversation || !modelSelect) {
+  if (!form || !prompt || !sendButton || !messages || !conversation || !modelSelect || !thinkingToggle) {
     throw new Error("Chat UI is missing required elements");
   }
 
@@ -31,6 +32,7 @@ export function getChatElements() {
     mobileModelLabel,
     conversationList,
     newChatButton,
+    thinkingToggle,
   };
 }
 
@@ -48,13 +50,17 @@ export function addMessage(container, role, content) {
 
   row.append(avatar, message);
   container.append(row);
-
-  const scroller = container.closest(".conversation");
-  if (scroller) {
-    scroller.scrollTop = scroller.scrollHeight;
-  }
+  scrollMessages(container);
 
   return message;
+}
+
+export function renderMessages(container, displayMessages) {
+  clearMessages(container);
+
+  for (const message of displayMessages) {
+    addMessage(container, message.role, message.content);
+  }
 }
 
 export function clearMessages(container) {
@@ -76,22 +82,30 @@ export function setModelLabels(model, modelBadge, mobileModelLabel) {
   if (mobileModelLabel) mobileModelLabel.textContent = model;
 }
 
-export function addConversationItem(container, title) {
+export function renderConversationList(container, sessions, activeSessionId, onSelectSession) {
   if (!container) return;
 
-  const empty = container.querySelector(".empty-conversations");
-  if (empty) empty.remove();
+  container.textContent = "";
 
-  const button = document.createElement("button");
-  button.className = "conversation-item";
-  button.type = "button";
-  button.textContent = title;
-  container.prepend(button);
-}
+  const visibleSessions = sessions.filter((session) => session.hasUserMessage);
+  if (visibleSessions.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-conversations";
+    empty.textContent = "No conversations yet";
+    container.append(empty);
+    return;
+  }
 
-export function resetConversationList(container) {
-  if (!container) return;
-  container.innerHTML = '<p class="empty-conversations">No conversations yet</p>';
+  for (const session of visibleSessions) {
+    const button = document.createElement("button");
+    button.className = "conversation-item";
+    button.type = "button";
+    button.textContent = session.title;
+    button.dataset.sessionId = session.id;
+    button.setAttribute("aria-pressed", session.id === activeSessionId ? "true" : "false");
+    button.addEventListener("click", () => onSelectSession(session.id));
+    container.append(button);
+  }
 }
 
 export function setupMobileSidebar({ menuButton, sidebarBackdrop }) {
@@ -124,6 +138,13 @@ export function setupMobileSidebar({ menuButton, sidebarBackdrop }) {
       closeSidebar();
     }
   });
+}
+
+function scrollMessages(container) {
+  const scroller = container.closest(".conversation");
+  if (scroller) {
+    scroller.scrollTop = scroller.scrollHeight;
+  }
 }
 
 function getAvatarText(role) {
