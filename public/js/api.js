@@ -58,6 +58,15 @@ export async function streamChat(messages, model, options = {}, handlers = {}) {
     throw new Error(data.error || "Chat request failed");
   }
 
+  const contentType = response.headers.get("Content-Type") || "";
+  if (!contentType.includes("text/event-stream")) {
+    const data = await response.json();
+    const answer = data.answer || "";
+    if (answer) handlers.onDelta?.(answer);
+    handlers.onDone?.({ model: data.model || model });
+    return answer;
+  }
+
   if (!response.body) {
     throw new Error("Streaming is not supported by this browser.");
   }
