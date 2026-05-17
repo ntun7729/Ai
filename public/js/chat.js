@@ -1,10 +1,10 @@
 import { fetchModels, sendChat } from "./api.js";
 import {
-  addConversationItem,
   addMessage,
   autoResizeTextarea,
   clearMessages,
-  resetConversationList,
+  renderConversationList,
+  renderMessages,
   setLoading,
   setModelLabels,
   setupMobileSidebar,
@@ -17,54 +17,74 @@ function createSystemMessage(model) {
   };
 }
 
-let conversation = [];
-let hasConversationItem = false;
-let activeModel = "";
+function createSession(model) {
+  return {
+    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
+    model,
+    title: "New chat",
+    hasUserMessage: false,
+    messages: [createSystemMessage(model)],
+    displayMessages: [{ role: "assistant", content: `New chat started with ${model}.` }],
+  };
+}
+
+let sessions = [];
+let activeSessionId = "";
 
 export function setupChat(elements) {
-  const { form, prompt, sendButton, messages, promptChips, modelSelect, modelBadge, mobileModelLabel, newChatButton } = elements;
-
-  activeModel = modelSelect.value;
-  conversation = [createSystemMessage(activeModel)];
+  const { form, prompt, sendButton, promptChips, modelSelect, modelBadge, mobileModelLabel, newChatButton } = elements;
 
   setupMobileSidebar(elements);
   setupPromptInput(prompt, form);
   setupPromptChips(promptChips, prompt);
   setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements);
   setupNewChat(newChatButton, elements);
-  loadProviderModels(modelSelect, modelBadge, mobileModelLabel, elements);
 
-  addMessage(messages, "assistant", "Hi! Ask me something and I will help.");
+  const firstSession = createSession(modelSelect.value);
+  firstSession.displayMessages = [{ role: "assistant", content: "Hi! Ask me something and I will help." }];
+  sessions = [firstSession];
+  activeSessionId = firstSession.id;
+  renderActiveSession(elements);
+  loadProviderModels(modelSelect, modelBadge, mobileModelLabel, elements);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await submitMessage({ prompt, sendButton, messages, modelSelect, conversationList: elements.conversationList });
+    await submitMessage(elements);
   });
 }
 
-async function submitMessage({ prompt, sendButton, messages, modelSelect, conversationList }) {
+async function submitMessage(elements) {
+  const { prompt, sendButton, messages, modelSelect, thinkingToggle } = elements;
   const userText = prompt.value.trim();
   if (!userText || sendButton.disabled) return;
 
-  ensureModelConversation(modelSelect.value);
-  document.body.classList.add("has-chat");
-  if (!hasConversationItem) {
-    addConversationItem(conversationList, makeConversationTitle(userText));
-    hasConversationItem = true;
-  }
+  const session = getActiveSession();
+  if (!session) return;
 
+  document.body.classList.add("has-chat");
   prompt.value = "";
   autoResizeTextarea(prompt);
-  conversation.push({ role: "user", content: userText });
+
+  session.hasUserMessage = true;
+  if (session.title === "New chat") {
+    session.title = makeConversationTitle(userText);
+  }
+  session.messages.push({ role: "user", content: userText });
+  session.displayMessages.push({ role: "user", content: userText });
   addMessage(messages, "user", userText);
+  renderSidebar(elements);
   setLoading(sendButton, true);
 
   try {
-    const answer = await sendChat(conversation, modelSelect.value);
-    conversation.push({ role: "assistant", content: answer });
+    const answer = await sendChat(session.messages, modelSelect.value, {
+      thinking: thinkingToggle.checked,
+    });
+    session.messages.push({ role: "assistant", content: answer });
+    session.displayMessages.push({ role: "assistant", content: answer || "No answer returned." });
     addMessage(messages, "assistant", answer || "No answer returned.");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Something went wrong.";
+    session.displayMessages.push({ role: "error", content: message });
     addMessage(messages, "error", message);
   } finally {
     setLoading(sendButton, false);
@@ -98,7 +118,7 @@ function setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements) {
 
   modelSelect.addEventListener("change", () => {
     setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
-    resetChatForModelChange(elements, modelSelect.value);
+    startNewSession(elements, modelSelect.value, true);
   });
 }
 
@@ -124,7 +144,14 @@ async function loadProviderModels(modelSelect, modelBadge, mobileModelLabel, ele
 
     modelSelect.value = preferredModel;
     setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
-    resetChatForModelChange(elements, modelSelect.value, false);
+
+    const session = getActiveSession();
+    if (session && !session.hasUserMessage) {
+      session.model = preferredModel;
+      session.messages = [createSystemMessage(preferredModel)];
+      session.displayMessages = [{ role: "assistant", content: "Hi! Ask me something and I will help." }];
+      renderActiveSession(elements);
+    }
   } catch (error) {
     console.warn("Failed to load provider models", error);
   }
@@ -134,29 +161,54 @@ function setupNewChat(newChatButton, elements) {
   if (!newChatButton) return;
 
   newChatButton.addEventListener("click", () => {
-    resetChatForModelChange(elements, elements.modelSelect.value, true);
+    startNewSession(elements, elements.modelSelect.value, true);
   });
 }
 
-function resetChatForModelChange(elements, model, showNotice = true) {
-  activeModel = model;
-  conversation = [createSystemMessage(model)];
-  hasConversationItem = false;
+function startNewSession(elements, model, showNotice) {
+  const session = createSession(model);
+  session.displayMessages = [
+    { role: "assistant", content: showNotice ? `New chat started with ${model}.` : "Hi! Ask me something and I will help." },
+  ];
+  sessions.unshift(session);
+  activeSessionId = session.id;
   document.body.classList.remove("has-chat");
-  clearMessages(elements.messages);
-  resetConversationList(elements.conversationList);
-  addMessage(elements.messages, "assistant", showNotice ? `New chat started with ${model}.` : "Hi! Ask me something and I will help.");
   elements.prompt.value = "";
   autoResizeTextarea(elements.prompt);
+  renderActiveSession(elements);
   elements.prompt.focus();
 }
 
-function ensureModelConversation(model) {
-  if (model === activeModel && conversation.length > 0) return;
+function selectSession(elements, sessionId) {
+  const session = sessions.find((item) => item.id === sessionId);
+  if (!session) return;
 
-  activeModel = model;
-  conversation = [createSystemMessage(model)];
-  hasConversationItem = false;
+  activeSessionId = sessionId;
+  elements.modelSelect.value = session.model;
+  setModelLabels(session.model, elements.modelBadge, elements.mobileModelLabel);
+  renderActiveSession(elements);
+  document.body.classList.toggle("has-chat", session.hasUserMessage);
+  document.body.classList.remove("sidebar-open");
+  if (elements.sidebarBackdrop) elements.sidebarBackdrop.hidden = true;
+}
+
+function renderActiveSession(elements) {
+  const session = getActiveSession();
+  if (!session) return;
+
+  clearMessages(elements.messages);
+  renderMessages(elements.messages, session.displayMessages);
+  renderSidebar(elements);
+}
+
+function renderSidebar(elements) {
+  renderConversationList(elements.conversationList, sessions, activeSessionId, (sessionId) => {
+    selectSession(elements, sessionId);
+  });
+}
+
+function getActiveSession() {
+  return sessions.find((session) => session.id === activeSessionId);
 }
 
 function makeConversationTitle(text) {
