@@ -12,7 +12,8 @@ export interface ImageUrlContentPart {
   };
 }
 
-export type ChatContent = string | Array<TextContentPart | ImageUrlContentPart>;
+export type ChatContentPart = TextContentPart | ImageUrlContentPart;
+export type ChatContent = string | ChatContentPart[];
 
 export interface ChatMessage {
   role: ChatRole;
