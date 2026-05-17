@@ -163,6 +163,7 @@ async function handleChat(req, res) {
   const rawMessages = Array.isArray(body.messages) ? body.messages : [];
   const memoryEnabled = body.memory !== false;
   const wantsSearch = body.webSearch === true || messageWantsSearch(rawMessages.at(-1)?.content);
+  const wantsClientStream = body.stream === true || String(req.headers.accept || "").includes("text/event-stream");
   const conversationId = cleanConversationId(body.conversationId) || conversationIdFromMessages(rawMessages);
   const conversationTitle = String(body.conversationTitle || fallbackTitle(latestUserText(rawMessages))).slice(0, 120);
   const latestText = latestUserText(rawMessages);
@@ -181,6 +182,7 @@ async function handleChat(req, res) {
     thinking,
     requestedThinking,
     webSearch: wantsSearch,
+    stream: wantsClientStream,
     memory: memoryEnabled,
     memoryStorage: await localMemoryStorageInfo(),
     messageCount: messages.length,
@@ -193,21 +195,31 @@ async function handleChat(req, res) {
   if (thinking) payload.chat_template_kwargs = { enable_thinking: true, clear_thinking: false };
 
   const response = await callProvider(payload, "text/event-stream, application/json");
-  const text = await response.text();
 
   log("chat.provider_response", {
     model,
     thinking,
     status: response.status,
     durationMs: Date.now() - startedAt,
-    bodyPreview: response.ok ? undefined : preview(text),
   });
 
   if (!response.ok) {
+    const text = await response.text();
     const data = parseJson(text);
     return sendJson(res, response.status, { error: data?.error?.message || preview(text), provider: { model, thinking, messageCount: messages.length } });
   }
 
+  if (wantsClientStream) {
+    await streamProviderToClient(res, response, {
+      model,
+      conversationId,
+      conversationTitle,
+      startedAt,
+    });
+    return;
+  }
+
+  const text = await response.text();
   const answer = providerAnswerOrEmpty(text);
   if (!answer) {
     log("chat.empty_answer", { model, bodyPreview: preview(text) });
@@ -217,6 +229,102 @@ async function handleChat(req, res) {
   await saveLocalMessage({ conversationId, title: conversationTitle, model, role: "assistant", content: answer });
   log("chat.answer", { model, answerPreview: preview(answer) });
   return sendJson(res, 200, { answer, model });
+}
+
+async function streamProviderToClient(res, response, { model, conversationId, conversationTitle, startedAt }) {
+  const contentType = response.headers.get("content-type") || "";
+  const encoderHeaders = {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+  };
+
+  res.writeHead(200, cors(encoderHeaders));
+
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  let answer = "";
+  let sentAnyContent = false;
+
+  try {
+    if (!response.body || contentType.includes("application/json")) {
+      const text = await response.text();
+      const directAnswer = providerAnswerOrEmpty(text);
+      if (directAnswer) {
+        answer += directAnswer;
+        sentAnyContent = true;
+        send("delta", { content: directAnswer });
+      }
+    } else {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        buffer = drainProviderSseBuffer(buffer, (content) => {
+          answer += content;
+          sentAnyContent = true;
+          send("delta", { content });
+        });
+      }
+
+      buffer += decoder.decode();
+      drainProviderSseBuffer(`${buffer}\n\n`, (content) => {
+        answer += content;
+        sentAnyContent = true;
+        send("delta", { content });
+      });
+    }
+
+    if (!sentAnyContent) {
+      send("error", { error: "The provider returned an empty answer. Please try again." });
+    }
+
+    if (answer.trim()) {
+      await saveLocalMessage({ conversationId, title: conversationTitle, model, role: "assistant", content: answer.trim() });
+      log("chat.answer", {
+        model,
+        durationMs: Date.now() - startedAt,
+        answerPreview: preview(answer),
+      });
+    } else {
+      log("chat.empty_answer", { model, durationMs: Date.now() - startedAt });
+    }
+
+    send("done", { model });
+    res.end();
+  } catch (error) {
+    const msg = message(error);
+    log("stream.error", { model, message: msg });
+    send("error", { error: msg });
+    send("done", { model });
+    res.end();
+  }
+}
+
+function drainProviderSseBuffer(buffer, onContent) {
+  const parts = buffer.split(/\n\n/);
+  const remainder = parts.pop() || "";
+
+  for (const part of parts) {
+    const dataLines = part.split(/\r?\n/).filter((line) => line.startsWith("data:"));
+    for (const line of dataLines) {
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+
+      const chunk = parseJson(payload);
+      const partContent = chunk?.choices?.[0]?.delta?.content;
+      if (typeof partContent === "string" && partContent) onContent(partContent);
+    }
+  }
+
+  return remainder;
 }
 
 async function handleTitle(req, res) {
@@ -349,7 +457,8 @@ async function loadDevVars(path) {
   }
   return values;
 }
+function cors(headers = {}) { return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", ...headers }; }
 function sendJson(res, status, data, headers = {}) { return send(res, status, JSON.stringify(data), { "Content-Type": "application/json; charset=utf-8", ...headers }); }
-function send(res, status, body, headers = {}) { res.writeHead(status, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", ...headers }); res.end(body); }
+function send(res, status, body, headers = {}) { res.writeHead(status, cors(headers)); res.end(body); }
 function contentType(path) { return { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8" }[extname(path)] || "application/octet-stream"; }
 function log(event, details = {}) { console.log(JSON.stringify({ time: new Date().toISOString(), event, ...details })); }
