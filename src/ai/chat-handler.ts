@@ -9,6 +9,8 @@ import { createChatCompletion, streamChatCompletion } from "./client";
 import type { ChatMessage } from "./types";
 import { parseChatRequest } from "./validation";
 
+const CLIENT_STREAM_FLUSH_MS = 55;
+
 export async function handleChat(request: Request, env: Env): Promise<Response> {
   try {
     const body = await request.json();
@@ -80,11 +82,38 @@ function createClientStream(providerResponse: Response, model: string): Response
   const decoder = new TextDecoder();
   let buffer = "";
   let sentAnyContent = false;
+  let pendingContent = "";
+  let flushTimer: number | null = null;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: string, data: Record<string, unknown>) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      };
+
+      const flushDelta = () => {
+        if (flushTimer !== null) {
+          clearTimeout(flushTimer);
+          flushTimer = null;
+        }
+
+        if (!pendingContent) return;
+        send("delta", { content: pendingContent });
+        pendingContent = "";
+      };
+
+      const queueDelta = (content: string) => {
+        if (!content) return;
+        sentAnyContent = true;
+        pendingContent += content;
+
+        if (flushTimer !== null) return;
+        flushTimer = setTimeout(() => {
+          flushTimer = null;
+          if (!pendingContent) return;
+          send("delta", { content: pendingContent });
+          pendingContent = "";
+        }, CLIENT_STREAM_FLUSH_MS);
       };
 
       try {
@@ -101,11 +130,12 @@ function createClientStream(providerResponse: Response, model: string): Response
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-          buffer = drainProviderSseBuffer(buffer, send, () => { sentAnyContent = true; });
+          buffer = drainProviderSseBuffer(buffer, queueDelta);
         }
 
         buffer += decoder.decode();
-        drainProviderSseBuffer(`${buffer}\n\n`, send, () => { sentAnyContent = true; });
+        drainProviderSseBuffer(`${buffer}\n\n`, queueDelta);
+        flushDelta();
 
         if (!sentAnyContent) {
           send("error", { error: "The provider returned an empty answer. Please try again." });
@@ -113,6 +143,7 @@ function createClientStream(providerResponse: Response, model: string): Response
         send("done", { model });
         controller.close();
       } catch (error) {
+        flushDelta();
         send("error", { error: error instanceof Error ? error.message : "Stream failed" });
         send("done", { model });
         controller.close();
@@ -131,8 +162,7 @@ function createClientStream(providerResponse: Response, model: string): Response
 
 function drainProviderSseBuffer(
   buffer: string,
-  send: (event: string, data: Record<string, unknown>) => void,
-  markContent: () => void,
+  onContent: (content: string) => void,
 ): string {
   const parts = buffer.split(/\n\n/);
   const remainder = parts.pop() || "";
@@ -146,10 +176,7 @@ function drainProviderSseBuffer(
       const json = safeParseJson(payload);
       const delta = json?.choices?.[0]?.delta;
       const content = typeof delta?.content === "string" ? delta.content : "";
-      if (content) {
-        markContent();
-        send("delta", { content });
-      }
+      if (content) onContent(content);
     }
   }
 
