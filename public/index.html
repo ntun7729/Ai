@@ -2,36 +2,84 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AI Website</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>AI Chat</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <section class="hero">
-        <p class="eyebrow">Cloudflare Worker + OpenAI-compatible API</p>
-        <h1>AI Chat Website</h1>
-        <p class="hero-copy">
-          Ask a question and the Worker will safely call your configured AI provider.
-        </p>
-      </section>
+    <div class="app-layout">
+      <aside id="sidebar" class="sidebar" aria-label="Chat navigation">
+        <div class="sidebar-header">
+          <div class="brand-mark">AI</div>
+          <div>
+            <p class="brand-title">AI Chat</p>
+            <p class="brand-subtitle">Cloudflare Worker</p>
+          </div>
+        </div>
 
-      <section class="chat-card" aria-label="AI chat">
-        <div id="messages" class="messages" aria-live="polite"></div>
+        <button class="new-chat-button" type="button">+ New chat</button>
 
-        <form id="chat-form" class="chat-form">
-          <label class="sr-only" for="prompt">Message</label>
-          <textarea
-            id="prompt"
-            name="prompt"
-            rows="3"
-            placeholder="Ask anything..."
-            required
-          ></textarea>
-          <button id="send-button" type="submit">Send</button>
-        </form>
-      </section>
-    </main>
+        <nav class="sidebar-nav" aria-label="Saved chats">
+          <p class="nav-label">Today</p>
+          <a href="#" aria-current="page">Current conversation</a>
+          <a href="#">NVIDIA API test</a>
+          <a href="#">Website ideas</a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <p>OpenAI-compatible API</p>
+          <span id="connection-status" class="status-pill">Ready</span>
+        </div>
+      </aside>
+
+      <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+
+      <main class="chat-shell">
+        <header class="mobile-topbar">
+          <button id="menu-button" class="icon-button" type="button" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
+            ☰
+          </button>
+          <div>
+            <p class="mobile-title">AI Chat</p>
+            <p class="mobile-subtitle">Worker + NVIDIA</p>
+          </div>
+          <div class="topbar-spacer" aria-hidden="true"></div>
+        </header>
+
+        <section class="conversation" aria-label="AI chat conversation">
+          <div class="conversation-header">
+            <div class="model-badge">openai/gpt-oss-120b</div>
+            <h1>How can I help?</h1>
+            <p>Ask a question, brainstorm, code, summarize, or plan your next feature.</p>
+          </div>
+
+          <div class="prompt-grid" aria-label="Example prompts">
+            <button class="prompt-chip" type="button" data-prompt="Give me three ideas to improve this AI website.">Improve this AI website</button>
+            <button class="prompt-chip" type="button" data-prompt="Explain how this Cloudflare Worker calls an OpenAI-compatible API.">Explain the backend</button>
+            <button class="prompt-chip" type="button" data-prompt="Create a simple roadmap for adding chat history and login.">Make a roadmap</button>
+            <button class="prompt-chip" type="button" data-prompt="Help me debug my next deployment error step by step.">Debug with me</button>
+          </div>
+
+          <div id="messages" class="messages" aria-live="polite"></div>
+        </section>
+
+        <section class="composer-shell" aria-label="Message composer">
+          <form id="chat-form" class="chat-form">
+            <label class="sr-only" for="prompt">Message</label>
+            <textarea
+              id="prompt"
+              name="prompt"
+              rows="1"
+              placeholder="Message AI Chat..."
+              autocomplete="off"
+              required
+            ></textarea>
+            <button id="send-button" class="send-button" type="submit" aria-label="Send message">↑</button>
+          </form>
+          <p class="composer-note">AI can make mistakes. Check important information.</p>
+        </section>
+      </main>
+    </div>
 
     <script type="module" src="/js/main.js"></script>
   </body>
