@@ -10,23 +10,29 @@ import {
   setupMobileSidebar,
 } from "./dom.js";
 
-const systemMessage = {
-  role: "system",
-  content: "You are a helpful AI assistant on a small website.",
-};
+function createSystemMessage(model) {
+  return {
+    role: "system",
+    content: `You are a helpful AI assistant on a small website. The selected provider model id is ${model}. If the user asks which model you are, answer with exactly this model id: ${model}.`,
+  };
+}
 
-let conversation = [systemMessage];
+let conversation = [];
 let hasConversationItem = false;
+let activeModel = "";
 
 export function setupChat(elements) {
   const { form, prompt, sendButton, messages, promptChips, modelSelect, modelBadge, mobileModelLabel, newChatButton } = elements;
 
+  activeModel = modelSelect.value;
+  conversation = [createSystemMessage(activeModel)];
+
   setupMobileSidebar(elements);
   setupPromptInput(prompt, form);
   setupPromptChips(promptChips, prompt);
-  setupModelPicker(modelSelect, modelBadge, mobileModelLabel);
+  setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements);
   setupNewChat(newChatButton, elements);
-  loadProviderModels(modelSelect, modelBadge, mobileModelLabel);
+  loadProviderModels(modelSelect, modelBadge, mobileModelLabel, elements);
 
   addMessage(messages, "assistant", "Hi! Ask me something and I will help.");
 
@@ -40,6 +46,7 @@ async function submitMessage({ prompt, sendButton, messages, modelSelect, conver
   const userText = prompt.value.trim();
   if (!userText || sendButton.disabled) return;
 
+  ensureModelConversation(modelSelect.value);
   document.body.classList.add("has-chat");
   if (!hasConversationItem) {
     addConversationItem(conversationList, makeConversationTitle(userText));
@@ -86,15 +93,16 @@ function setupPromptChips(promptChips, prompt) {
   }
 }
 
-function setupModelPicker(modelSelect, modelBadge, mobileModelLabel) {
+function setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements) {
   setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
 
   modelSelect.addEventListener("change", () => {
     setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
+    resetChatForModelChange(elements, modelSelect.value);
   });
 }
 
-async function loadProviderModels(modelSelect, modelBadge, mobileModelLabel) {
+async function loadProviderModels(modelSelect, modelBadge, mobileModelLabel, elements) {
   const existingModel = modelSelect.value;
 
   try {
@@ -116,6 +124,7 @@ async function loadProviderModels(modelSelect, modelBadge, mobileModelLabel) {
 
     modelSelect.value = preferredModel;
     setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
+    resetChatForModelChange(elements, modelSelect.value, false);
   } catch (error) {
     console.warn("Failed to load provider models", error);
   }
@@ -125,16 +134,29 @@ function setupNewChat(newChatButton, elements) {
   if (!newChatButton) return;
 
   newChatButton.addEventListener("click", () => {
-    conversation = [systemMessage];
-    hasConversationItem = false;
-    document.body.classList.remove("has-chat");
-    clearMessages(elements.messages);
-    resetConversationList(elements.conversationList);
-    addMessage(elements.messages, "assistant", "Hi! Ask me something and I will help.");
-    elements.prompt.value = "";
-    autoResizeTextarea(elements.prompt);
-    elements.prompt.focus();
+    resetChatForModelChange(elements, elements.modelSelect.value, true);
   });
+}
+
+function resetChatForModelChange(elements, model, showNotice = true) {
+  activeModel = model;
+  conversation = [createSystemMessage(model)];
+  hasConversationItem = false;
+  document.body.classList.remove("has-chat");
+  clearMessages(elements.messages);
+  resetConversationList(elements.conversationList);
+  addMessage(elements.messages, "assistant", showNotice ? `New chat started with ${model}.` : "Hi! Ask me something and I will help.");
+  elements.prompt.value = "";
+  autoResizeTextarea(elements.prompt);
+  elements.prompt.focus();
+}
+
+function ensureModelConversation(model) {
+  if (model === activeModel && conversation.length > 0) return;
+
+  activeModel = model;
+  conversation = [createSystemMessage(model)];
+  hasConversationItem = false;
 }
 
 function makeConversationTitle(text) {
