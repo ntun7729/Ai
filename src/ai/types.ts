@@ -17,6 +17,7 @@ export interface RuntimeSettings {
   logsEnabled?: boolean;
   webFetchEnabled?: boolean;
   googleSearchEnabled?: boolean;
+  browserCredential?: string;
 }
 
 export type ChatContentPart = TextContentPart | ImageUrlContentPart;
