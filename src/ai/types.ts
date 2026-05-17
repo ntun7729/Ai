@@ -34,6 +34,7 @@ export interface ChatRequestBody {
   thinking?: boolean;
   webSearch?: boolean;
   memory?: boolean;
+  stream?: boolean;
   conversationId?: string;
   conversationTitle?: string;
   runtime?: RuntimeSettings;
