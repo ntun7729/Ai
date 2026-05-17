@@ -308,11 +308,21 @@ function renderTextBlock(container, text) {
     list = null;
   };
 
-  for (const rawLine of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
     const line = rawLine.trim();
     if (!line) {
       flushParagraph();
       flushList();
+      continue;
+    }
+
+    const table = collectMarkdownTable(lines, index);
+    if (table) {
+      flushParagraph();
+      flushList();
+      container.append(createMarkdownTableCards(table.headers, table.rows));
+      index = table.nextIndex - 1;
       continue;
     }
 
@@ -359,6 +369,94 @@ function renderTextBlock(container, text) {
 
   flushParagraph();
   flushList();
+}
+
+function collectMarkdownTable(lines, startIndex) {
+  const headerLine = lines[startIndex]?.trim() || "";
+  const separatorLine = lines[startIndex + 1]?.trim() || "";
+  if (!isMarkdownTableRow(headerLine) || !isMarkdownTableSeparator(separatorLine)) return null;
+
+  const headers = parseMarkdownTableCells(headerLine);
+  if (headers.length < 2) return null;
+
+  const rows = [];
+  let nextIndex = startIndex + 2;
+  while (nextIndex < lines.length) {
+    const rowLine = lines[nextIndex].trim();
+    if (!isMarkdownTableRow(rowLine)) break;
+    const cells = parseMarkdownTableCells(rowLine);
+    if (cells.some((cell) => cell.trim())) rows.push(cells);
+    nextIndex += 1;
+  }
+
+  if (!rows.length) return null;
+  return { headers, rows, nextIndex };
+}
+
+function isMarkdownTableRow(line) {
+  if (!line.includes("|")) return false;
+  return /^\|.*\|$/.test(line.trim());
+}
+
+function isMarkdownTableSeparator(line) {
+  if (!isMarkdownTableRow(line)) return false;
+  const cells = parseMarkdownTableCells(line);
+  return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function parseMarkdownTableCells(line) {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function createMarkdownTableCards(headers, rows) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "markdown-table-cards";
+
+  const titleIndex = Math.max(
+    0,
+    headers.findIndex((header) => /^(story|headline|topic|title|source)$/i.test(header.trim())),
+  );
+
+  for (const row of rows) {
+    const card = document.createElement("section");
+    card.className = "markdown-table-card";
+
+    const titleText = row[titleIndex] || row.find((cell) => cell.trim()) || "Item";
+    if (titleText) {
+      const title = document.createElement("h4");
+      title.className = "markdown-table-card-title";
+      renderInlineMarkdown(title, titleText);
+      card.append(title);
+    }
+
+    headers.forEach((header, index) => {
+      const value = row[index] || "";
+      if (!value.trim()) return;
+
+      const field = document.createElement("div");
+      field.className = "markdown-table-field";
+
+      const label = document.createElement("span");
+      label.className = "markdown-table-label";
+      label.textContent = header.trim() || `Column ${index + 1}`;
+
+      const body = document.createElement("p");
+      body.className = "markdown-table-value";
+      renderInlineMarkdown(body, value);
+
+      field.append(label, body);
+      card.append(field);
+    });
+
+    wrapper.append(card);
+  }
+
+  return wrapper;
 }
 
 function renderInlineMarkdown(parent, text) {
