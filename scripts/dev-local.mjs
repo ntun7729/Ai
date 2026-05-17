@@ -15,15 +15,15 @@ createServer(async (req, res) => {
 
     if (req.method === "OPTIONS") return send(res, 204, "");
     if (url.pathname === "/api/health" && req.method === "GET") return sendJson(res, 200, health());
-    if (url.pathname === "/api/models" && req.method === "GET") return handleModels(res);
-    if (url.pathname === "/api/chat" && req.method === "POST") return handleChat(req, res);
-    if (url.pathname === "/api/title" && req.method === "POST") return handleTitle(req, res);
+    if (url.pathname === "/api/models" && req.method === "GET") { await handleModels(res); return; }
+    if (url.pathname === "/api/chat" && req.method === "POST") { await handleChat(req, res); return; }
+    if (url.pathname === "/api/title" && req.method === "POST") { await handleTitle(req, res); return; }
 
-    return serveStatic(url.pathname, res);
+    await serveStatic(url.pathname, res);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown local server error";
     log("error", { message });
-    return sendJson(res, 500, { error: message });
+    sendJson(res, 500, { error: message });
   }
 }).listen(port, host, () => {
   const info = health();
@@ -140,15 +140,17 @@ async function handleTitle(req, res) {
     model,
     status: response.status,
     durationMs: Date.now() - startedAt,
-    bodyPreview: response.ok ? undefined : preview(text),
+    bodyPreview: preview(text),
   });
 
   if (!response.ok) {
     const data = parseJson(text);
-    return sendJson(res, response.status, { error: data?.error?.message || preview(text) });
+    const title = fallbackTitle(question);
+    log("title.fallback", { model, reason: data?.error?.message || preview(text), title });
+    return sendJson(res, 200, { title });
   }
 
-  const title = cleanTitle(providerAnswer(text, model)) || fallbackTitle(question);
+  const title = cleanTitle(providerAnswerOrEmpty(text)) || fallbackTitle(question);
   log("title.answer", { model, title });
   return sendJson(res, 200, { title });
 }
@@ -162,9 +164,15 @@ function callProvider(payload, accept) {
 }
 
 function providerAnswer(text, model) {
+  const answer = providerAnswerOrEmpty(text);
+  if (answer) return answer;
+  throw new Error(`AI provider returned no content from ${chatEndpoint()} using model ${model}`);
+}
+
+function providerAnswerOrEmpty(text) {
   const json = parseJson(text);
   const direct = json?.choices?.[0]?.message?.content;
-  if (typeof direct === "string") return direct;
+  if (typeof direct === "string" && direct.trim()) return direct;
 
   let content = "";
   for (const line of text.split(/\r?\n/)) {
@@ -176,8 +184,7 @@ function providerAnswer(text, model) {
     if (typeof part === "string") content += part;
   }
 
-  if (content) return content;
-  throw new Error(`AI provider returned no content from ${chatEndpoint()} using model ${model}`);
+  return content.trim();
 }
 
 async function serveStatic(pathname, res) {
