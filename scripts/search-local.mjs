@@ -1,18 +1,27 @@
 const SEARCH_RESULT_LIMIT = 8;
 const REQUEST_TIMEOUT_MS = 8000;
+const URL_PATTERN = /https?:\/\/[^\s<>)"']+/gi;
 
 export async function addSearchContext(env, messages, log = () => {}) {
   const rawQuery = latestUserText(messages);
-  const query = normalizeSearchQuery(rawQuery);
-  if (!query) return messages;
+  if (!rawQuery) return messages;
 
-  log("search.request", { query: preview(query), rawQuery: preview(rawQuery) });
-  const results = await searchWeb(env, query, log);
-  log("search.results", { count: results.length });
+  const urls = extractUrls(rawQuery);
+  const query = normalizeSearchQuery(rawQuery);
+  const shouldSearch = urls.length === 0 || messageWantsSearch(rawQuery);
+
+  log("search.request", { query: preview(query), rawQuery: preview(rawQuery), urlCount: urls.length, shouldSearch });
+
+  const pageResults = await fetchLinkedPages(env, urls, log);
+  const searchResults = shouldSearch ? await searchWeb(env, query, log) : [];
+  const results = uniqueResults([...pageResults, ...searchResults]).slice(0, SEARCH_RESULT_LIMIT);
+
+  log("search.results", { count: results.length, pageCount: pageResults.length, searchCount: searchResults.length });
 
   const context = results.length > 0
     ? [
-        "Fresh web results were fetched by the local fallback server before this answer.",
+        "Fresh web results and linked-page text were fetched by the local fallback server before this answer.",
+        "If a linked page was fetched, use that page text as the main source for the answer.",
         "Synthesize the results into a helpful answer instead of listing raw search links.",
         "For news, give a summary, key details, and why each item matters.",
         "Prefer reliable or primary outlets when results overlap, and mention uncertainty when details are thin.",
@@ -24,18 +33,34 @@ export async function addSearchContext(env, messages, log = () => {}) {
           item.snippet ? `Snippet: ${item.snippet}` : "",
         ].filter(Boolean).join("\n")),
       ].join("\n\n")
-    : "Web search was requested, but the local fallback server could not fetch direct web results or fallback results. Say that search failed and ask the user to try again.";
+    : "Web/link fetch was requested, but the local fallback server could not fetch direct page text, direct web results, or fallback results. Say that fetch failed and ask the user to try a normal article URL instead of a Google News wrapper link.";
 
   return [...messages, { role: "system", content: context }];
+}
+
+export function messageHasUrl(content) {
+  return extractUrls(textFromContent(content)).length > 0;
+}
+
+export function messageWantsSearch(content) {
+  const text = textFromContent(content);
+  return /\b(web\s*search|websearch|search web|latest news|today news|current news|find latest|find today|search)\b/i.test(text) || messageHasUrl(text);
 }
 
 async function searchWeb(env, query, log) {
   const results = [];
 
-  results.push(...await googleNewsSearch(env, query, log).catch((error) => {
-    log("search.google_news_error", { message: message(error) });
+  results.push(...await googleSearch(env, query, log).catch((error) => {
+    log("search.google_error", { message: message(error) });
     return [];
   }));
+
+  if (results.length < SEARCH_RESULT_LIMIT) {
+    results.push(...await googleNewsSearch(env, query, log).catch((error) => {
+      log("search.google_news_error", { message: message(error) });
+      return [];
+    }));
+  }
 
   if (results.length < SEARCH_RESULT_LIMIT) {
     results.push(...await duckDuckGoLiteSearch(env, query, log).catch((error) => {
@@ -52,6 +77,114 @@ async function searchWeb(env, query, log) {
   }
 
   return uniqueResults(results).slice(0, SEARCH_RESULT_LIMIT);
+}
+
+async function fetchLinkedPages(env, urls, log) {
+  const safeUrls = urls.filter(isAllowedFetchUrl).slice(0, 3);
+  const out = [];
+
+  for (const inputUrl of safeUrls) {
+    const resolvedUrl = await resolveNewsUrl(env, inputUrl, log).catch((error) => {
+      log("link.resolve_error", { url: inputUrl, message: message(error) });
+      return inputUrl;
+    });
+
+    const html = await fetchText(env, resolvedUrl).catch((error) => {
+      log("link.fetch_error", { url: resolvedUrl, message: message(error) });
+      return "";
+    });
+
+    if (!html) continue;
+
+    const title = extractHtmlTitle(html) || resolvedUrl;
+    const text = htmlToReadableText(html).slice(0, 6000);
+    if (!text || text.length < 120) continue;
+
+    log("link.fetched", { inputUrl, resolvedUrl, title: preview(title), textLength: text.length });
+    out.push({ title, url: resolvedUrl, snippet: text });
+  }
+
+  return out;
+}
+
+async function resolveNewsUrl(env, inputUrl, log) {
+  const url = new URL(inputUrl);
+  if (!url.hostname.endsWith("news.google.com")) return inputUrl;
+
+  const articleId = googleNewsArticleId(url);
+  if (!articleId) return inputUrl;
+
+  const articleUrl = await decodeGoogleNewsArticle(env, articleId).catch(() => "");
+  if (articleUrl && isAllowedFetchUrl(articleUrl)) {
+    log("link.google_news_resolved", { inputUrl, articleUrl });
+    return articleUrl;
+  }
+
+  const html = await fetchText(env, inputUrl).catch(() => "");
+  const canonical = extractGoogleNewsCanonical(html);
+  if (canonical && isAllowedFetchUrl(canonical)) {
+    log("link.google_news_canonical", { inputUrl, articleUrl: canonical });
+    return canonical;
+  }
+
+  return inputUrl;
+}
+
+function googleNewsArticleId(url) {
+  const parts = url.pathname.split("/").filter(Boolean);
+  const index = parts.findIndex((part) => part === "read" || part === "articles");
+  return index >= 0 ? parts[index + 1] || "" : "";
+}
+
+async function decodeGoogleNewsArticle(env, articleId) {
+  const articlePage = `https://news.google.com/articles/${articleId}`;
+  const html = await fetchText(env, articlePage);
+  const signature = html.match(/data-n-a-sg="([^"]+)"/)?.[1] || "";
+  const timestamp = html.match(/data-n-a-ts="([^"]+)"/)?.[1] || "";
+  if (!signature || !timestamp) return "";
+
+  const rpc = [[["Fbv4je", JSON.stringify([articleId, signature, timestamp]), null, "generic"]]];
+  const body = `f.req=${encodeURIComponent(JSON.stringify(rpc))}`;
+  const response = await fetchWithTimeout("https://news.google.com/_/DotsSplashUi/data/batchexecute?rpcids=Fbv4je", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+      "User-Agent": "Mozilla/5.0 AIChatLocalSearch/1.0",
+    },
+    body,
+  });
+
+  if (!response.ok) return "";
+  const text = await response.text();
+  const match = text.match(/\[\"garturlres\",\"(https?:\\\/\\\/[^\"]+)/);
+  return match ? JSON.parse(`"${match[1]}"`) : "";
+}
+
+function extractGoogleNewsCanonical(html) {
+  if (!html) return "";
+  const href = html.match(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>/i)?.[1] || "";
+  if (href && !href.includes("news.google.com")) return decodeHtml(href);
+  return "";
+}
+
+async function googleSearch(env, query) {
+  const url = new URL("https://www.google.com/search");
+  url.searchParams.set("q", query);
+  url.searchParams.set("hl", "en");
+
+  const html = await fetchText(env, url.toString());
+  const results = [];
+  const matches = html.matchAll(/<a\s+href="\/url\?q=([^"&]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g);
+
+  for (const match of matches) {
+    const target = decodeURIComponent(match[1] || "");
+    const title = clean(decodeHtml((match[2] || "").replace(/<[^>]+>/g, " ")));
+    if (!target || !title || target.includes("google.com")) continue;
+    results.push({ title, url: target, snippet: "" });
+    if (results.length >= SEARCH_RESULT_LIMIT) break;
+  }
+
+  return results;
 }
 
 async function googleNewsSearch(env, query) {
@@ -125,7 +258,7 @@ async function fetchText(env, targetUrl) {
   const fallbackText = await fetchTextViaFallback(env, targetUrl).catch(() => "");
   if (fallbackText) return fallbackText;
 
-  throw new Error("direct web fetch failed");
+  throw new Error(`direct web fetch failed with status ${direct?.status || "network"}`);
 }
 
 async function fetchTextViaFallback(env, targetUrl) {
@@ -153,27 +286,57 @@ function latestUserText(messages) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const current = messages[index];
     if (current?.role !== "user") continue;
-    if (typeof current.content === "string") return current.content;
-    if (Array.isArray(current.content)) {
-      const text = current.content.find((part) => part?.type === "text");
-      if (text?.text) return text.text;
-    }
+    return textFromContent(current.content);
   }
   return "";
+}
+
+function textFromContent(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.find((part) => part?.type === "text")?.text || "";
+  return String(content || "");
 }
 
 function normalizeSearchQuery(query) {
   const cleaned = clean(query)
     .replace(/lastest/gi, "latest")
-    .replace(/\b(web\s*search|websearch|search web|find)\b/gi, "")
+    .replace(URL_PATTERN, "")
+    .replace(/\b(web\s*search|websearch|search web|read this|summarize it|summarize|find)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 
-  if (/^(latest|today|current)?\s*news\.?$/i.test(cleaned) || cleaned.length === 0) {
-    return "top stories today";
-  }
-
+  if (/^(latest|today|current)?\s*news\.?$/i.test(cleaned) || cleaned.length === 0) return "top stories today";
   return cleaned;
+}
+
+function extractUrls(text) {
+  return Array.from(new Set(String(text || "").match(URL_PATTERN) || [])).map((url) => url.replace(/[.,!?;:]+$/g, ""));
+}
+
+function isAllowedFetchUrl(value) {
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) return false;
+    const host = url.hostname.toLowerCase();
+    if (["localhost", "127.0.0.1", "0.0.0.0"].includes(host)) return false;
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function extractHtmlTitle(html) {
+  return clean(decodeHtml(String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || ""));
+}
+
+function htmlToReadableText(html) {
+  return clean(decodeHtml(String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
+    .replace(/<[^>]+>/g, " ")));
 }
 
 function normalizeDuckDuckGoUrl(value) {
