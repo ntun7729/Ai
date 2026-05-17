@@ -1,6 +1,10 @@
 import type { AppConfig } from "../config/env";
 import type { ChatCompletionResponse, ChatMessage } from "./types";
 
+export interface ProviderModel {
+  id: string;
+}
+
 export async function createChatCompletion(
   config: AppConfig,
   messages: ChatMessage[],
@@ -34,9 +38,41 @@ export async function createChatCompletion(
   return parseProviderResponse(text, chatUrl, config.model);
 }
 
+export async function listProviderModels(config: AppConfig): Promise<ProviderModel[]> {
+  const response = await fetch(getModelsUrl(config.baseUrl), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      Accept: "application/json",
+    },
+  });
+
+  const text = await response.text();
+  const data = parseModelsJson(text);
+
+  if (!response.ok) {
+    const message = data?.error?.message || text.slice(0, 500) || `AI provider returned HTTP ${response.status}`;
+    throw new Error(message);
+  }
+
+  const models = Array.isArray(data?.data) ? data.data : [];
+
+  return models
+    .map((model) => ({ id: String(model?.id || "").trim() }))
+    .filter((model) => model.id.length > 0)
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 export function getChatCompletionsUrl(baseUrl: string): string {
   const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
   const suffix = cleanBaseUrl.endsWith("/v1") ? "/chat/completions" : "/v1/chat/completions";
+
+  return `${cleanBaseUrl}${suffix}`;
+}
+
+export function getModelsUrl(baseUrl: string): string {
+  const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
+  const suffix = cleanBaseUrl.endsWith("/v1") ? "/models" : "/v1/models";
 
   return `${cleanBaseUrl}${suffix}`;
 }
@@ -90,6 +126,14 @@ function parseServerSentEvents(text: string): string {
 function parseJsonOrNull(text: string): ChatCompletionResponse | null {
   try {
     return JSON.parse(text) as ChatCompletionResponse;
+  } catch {
+    return null;
+  }
+}
+
+function parseModelsJson(text: string): { data?: Array<{ id?: string }>; error?: { message?: string } } | null {
+  try {
+    return JSON.parse(text) as { data?: Array<{ id?: string }>; error?: { message?: string } };
   } catch {
     return null;
   }
