@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <title>AI Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260517-2" />
-    <link rel="stylesheet" href="/mobile.css?v=20260517-2" />
+    <link rel="stylesheet" href="/styles.css?v=20260517-3" />
+    <link rel="stylesheet" href="/mobile.css?v=20260517-3" />
   </head>
   <body>
     <div class="app-layout">
@@ -21,11 +21,25 @@
         <button id="new-chat-button" class="new-chat-button" type="button">+ New chat</button>
 
         <div class="model-picker">
-          <label for="model-select">Model</label>
-          <select id="model-select" name="model">
-            <option value="openai/gpt-oss-120b" selected>openai/gpt-oss-120b</option>
-            <option value="z-ai/glm-5.1">z-ai/glm-5.1</option>
-          </select>
+          <div class="model-picker-heading">
+            <label for="model-select">Model</label>
+            <span>Provider list</span>
+          </div>
+          <div class="model-select-shell">
+            <select id="model-select" name="model">
+              <option value="openai/gpt-oss-120b" selected>openai/gpt-oss-120b</option>
+              <option value="z-ai/glm-5.1">z-ai/glm-5.1</option>
+            </select>
+            <span class="select-chevron" aria-hidden="true">⌄</span>
+          </div>
+          <label class="thinking-toggle" for="thinking-toggle">
+            <input id="thinking-toggle" type="checkbox" />
+            <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+            <span class="toggle-copy">
+              <strong>Thinking</strong>
+              <small>Only enable for models that support it</small>
+            </span>
+          </label>
         </div>
 
         <nav class="sidebar-nav" aria-label="Saved chats">
@@ -90,6 +104,6 @@
       </main>
     </div>
 
-    <script type="module" src="/js/main.js?v=20260517-2"></script>
+    <script type="module" src="/js/main.js?v=20260517-3"></script>
   </body>
 </html>
