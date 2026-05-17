@@ -23,6 +23,8 @@ export async function sendChat(messages, model, options = {}) {
       thinking: Boolean(options.thinking),
       webSearch: Boolean(options.webSearch),
       memory: getMemoryEnabled(),
+      conversationId: options.conversationId,
+      conversationTitle: options.conversationTitle,
       runtime: getRuntimeOptions(),
     }),
   });
