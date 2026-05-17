@@ -58,7 +58,7 @@ export function addMessage(container, role, content) {
 
   const message = document.createElement("div");
   message.className = `message ${role}`;
-  setMessageContent(message, content);
+  setMessageContent(message, role, content);
 
   row.append(avatar, message);
   container.append(row);
@@ -69,7 +69,8 @@ export function addMessage(container, role, content) {
 
 export function updateMessage(message, content) {
   if (!message) return;
-  setMessageContent(message, content);
+  const role = message.classList.contains("assistant") ? "assistant" : message.classList.contains("error") ? "error" : "user";
+  setMessageContent(message, role, content);
   const container = message.closest("#messages");
   if (container) scrollMessages(container);
 }
@@ -88,7 +89,7 @@ export function clearMessages(container) {
 
 export function setLoading(sendButton, isLoading) {
   sendButton.disabled = isLoading;
-  sendButton.textContent = isLoading ? "…" : "↑";
+  sendButton.textContent = isLoading ? "..." : "↑";
 }
 
 export function autoResizeTextarea(textarea) {
@@ -247,8 +248,200 @@ export function hideAttachmentPreview(container) {
   container.textContent = "";
 }
 
-function setMessageContent(message, content) {
-  message.textContent = content;
+function setMessageContent(message, role, content) {
+  const text = String(content || "");
+  message.textContent = "";
+  message.dataset.rawContent = text;
+
+  if (role === "assistant") {
+    renderMarkdown(message, text);
+    if (text.trim()) appendCopyResponseButton(message, text);
+    return;
+  }
+
+  message.textContent = text;
+}
+
+function renderMarkdown(container, text) {
+  const blocks = splitCodeBlocks(text);
+  for (const block of blocks) {
+    if (block.type === "code") {
+      container.append(createCodeBlock(block.language, block.content));
+    } else {
+      renderTextBlock(container, block.content);
+    }
+  }
+}
+
+function splitCodeBlocks(text) {
+  const blocks = [];
+  const regex = /```([^\n`]*)\n?([\s\S]*?)(?:```|$)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) blocks.push({ type: "text", content: text.slice(lastIndex, match.index) });
+    blocks.push({ type: "code", language: match[1].trim() || "Code", content: match[2].replace(/\n$/, "") });
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) blocks.push({ type: "text", content: text.slice(lastIndex) });
+  return blocks.length ? blocks : [{ type: "text", content: text }];
+}
+
+function renderTextBlock(container, text) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let paragraph = [];
+  let list = null;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    const p = document.createElement("p");
+    renderInlineMarkdown(p, paragraph.join(" ").trim());
+    container.append(p);
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!list) return;
+    container.append(list);
+    list = null;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    if (/^-{3,}$/.test(line)) {
+      flushParagraph();
+      flushList();
+      container.append(document.createElement("hr"));
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = String(heading[1]).length + 1;
+      const h = document.createElement(`h${level}`);
+      renderInlineMarkdown(h, heading[2]);
+      container.append(h);
+      continue;
+    }
+
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      if (!list) list = document.createElement("ul");
+      const li = document.createElement("li");
+      renderInlineMarkdown(li, bullet[1]);
+      list.append(li);
+      continue;
+    }
+
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (numbered) {
+      flushParagraph();
+      if (!list || list.tagName !== "OL") list = document.createElement("ol");
+      const li = document.createElement("li");
+      renderInlineMarkdown(li, numbered[1]);
+      list.append(li);
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+}
+
+function renderInlineMarkdown(parent, text) {
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)]+\))/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) parent.append(document.createTextNode(text.slice(lastIndex, match.index)));
+    const token = match[0];
+    if (token.startsWith("**")) {
+      const strong = document.createElement("strong");
+      strong.textContent = token.slice(2, -2);
+      parent.append(strong);
+    } else if (token.startsWith("`")) {
+      const code = document.createElement("code");
+      code.textContent = token.slice(1, -1);
+      parent.append(code);
+    } else {
+      const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
+      const anchor = document.createElement("a");
+      anchor.textContent = linkMatch?.[1] || token;
+      anchor.href = linkMatch?.[2] || "#";
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      parent.append(anchor);
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) parent.append(document.createTextNode(text.slice(lastIndex)));
+}
+
+function createCodeBlock(language, codeText) {
+  const shell = document.createElement("div");
+  shell.className = "code-block";
+
+  const header = document.createElement("div");
+  header.className = "code-block-header";
+
+  const label = document.createElement("span");
+  label.textContent = language || "Code";
+
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "copy-code-button";
+  copy.textContent = "Copy";
+  copy.addEventListener("click", async () => {
+    await copyText(codeText, copy, "Copied");
+  });
+
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  code.textContent = codeText;
+  pre.append(code);
+
+  header.append(label, copy);
+  shell.append(header, pre);
+  return shell;
+}
+
+function appendCopyResponseButton(message, text) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "copy-response-button";
+  button.textContent = "Copy response";
+  button.addEventListener("click", async () => {
+    await copyText(text, button, "Copied");
+  });
+  message.append(button);
+}
+
+async function copyText(text, button, copiedLabel) {
+  try {
+    await navigator.clipboard.writeText(text);
+    const original = button.textContent;
+    button.textContent = copiedLabel;
+    window.setTimeout(() => {
+      button.textContent = original;
+    }, 1100);
+  } catch {
+    button.textContent = "Copy failed";
+  }
 }
 
 function scrollMessages(container) {
