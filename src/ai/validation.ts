@@ -1,7 +1,7 @@
 import type { ChatMessage, ChatRequestBody } from "./types";
 
 const VALID_ROLES = new Set(["system", "user", "assistant"]);
-const VALID_MODELS = new Set(["openai/gpt-oss-120b", "z-ai/glm-5.1"]);
+const MODEL_ID_PATTERN = /^[A-Za-z0-9._:/-]+$/;
 
 export function parseChatRequest(input: unknown): ChatRequestBody {
   if (!isRecord(input)) {
@@ -49,7 +49,8 @@ function parseModel(value: unknown): string | undefined {
   }
 
   const model = value.trim();
-  if (!VALID_MODELS.has(model)) {
+
+  if (model.length > 160 || !MODEL_ID_PATTERN.test(model)) {
     throw new Error("Unsupported model selected");
   }
 
