@@ -9,6 +9,9 @@
   },
   "vars": {
     "AI_BASE_URL": "https://integrate.api.nvidia.com/v1",
-    "AI_MODEL": "z-ai/glm-5.1"
+    "AI_MODEL": "z-ai/glm-5.1",
+    "PROXY_HOSTS": "",
+    "PROXY_FAIL_COOLDOWN_MS": "120000",
+    "ENABLE_LOGS": "false"
   }
 }
