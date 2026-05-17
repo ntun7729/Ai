@@ -24,6 +24,7 @@ export interface ChatRequestBody {
   messages: ChatMessage[];
   model?: string;
   thinking?: boolean;
+  webSearch?: boolean;
 }
 
 export interface ChatCompletionDelta {
