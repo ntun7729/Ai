@@ -65,7 +65,7 @@ h1 { font-size: clamp(2rem, 5vw, 3.8rem); letter-spacing: -0.055em; line-height:
 .message-row.user { grid-template-columns: minmax(0, 1fr) 34px; }
 .avatar { align-items: center; background: var(--panel-soft); border: 1px solid var(--line); border-radius: 999px; color: var(--text); display: grid; font-size: 0.75rem; font-weight: 800; height: 34px; place-items: center; width: 34px; }
 .message-row.user .avatar { background: var(--accent); color: #111; grid-column: 2; grid-row: 1; }
-.message { color: var(--text); font-size: 1rem; line-height: 1.65; overflow-wrap: anywhere; }
+.message { color: var(--text); font-size: 1rem; line-height: 1.65; min-width: 0; overflow-wrap: break-word; word-break: normal; }
 .message.user { align-self: start; background: var(--user); border-radius: 18px; justify-self: end; max-width: min(680px, 100%); padding: 12px 16px; white-space: pre-wrap; }
 .message.assistant { background: var(--assistant); padding: 4px 0; white-space: normal; }
 .message.error { background: rgba(127,29,29,0.25); border: 1px solid rgba(252,165,165,0.25); border-radius: 16px; color: #fecaca; padding: 12px 14px; white-space: pre-wrap; }
@@ -79,6 +79,13 @@ h1 { font-size: clamp(2rem, 5vw, 3.8rem); letter-spacing: -0.055em; line-height:
 .message.assistant hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
 .message.assistant a { color: #c7d2fe; text-decoration: underline; text-underline-offset: 3px; }
 .message.assistant code { background: rgba(255,255,255,0.1); border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.92em; padding: 0.12em 0.34em; }
+.markdown-table-cards { display: grid; gap: 12px; margin: 12px 0 18px; width: 100%; }
+.markdown-table-card { background: #2b2b2b; border: 1px solid rgba(255,255,255,0.1); border-radius: 18px; padding: 14px; }
+.markdown-table-card-title { font-size: 1rem; line-height: 1.35; margin: 0 0 12px !important; }
+.markdown-table-field { border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; }
+.markdown-table-field + .markdown-table-field { margin-top: 10px; }
+.markdown-table-label { color: var(--muted); display: block; font-size: 0.74rem; font-weight: 800; letter-spacing: 0.04em; margin-bottom: 4px; text-transform: uppercase; }
+.markdown-table-value { margin: 0 !important; }
 .code-block { background: #101010; border: 1px solid var(--line); border-radius: 16px; margin: 14px 0 18px; overflow: hidden; }
 .code-block-header { align-items: center; background: #202020; border-bottom: 1px solid var(--line); color: var(--muted); display: flex; font-size: 0.82rem; font-weight: 700; justify-content: space-between; padding: 10px 12px; }
 .copy-code-button, .copy-response-button { background: #2f2f2f; border: 1px solid rgba(255,255,255,0.16); border-radius: 999px; color: var(--text); cursor: pointer; font-size: 0.82rem; padding: 6px 12px; }
@@ -103,4 +110,4 @@ textarea::placeholder { color: #b4b4b4; }
 body.sidebar-open .sidebar { transform: translateX(0); }
 @media (max-width: 860px) { body { overflow: hidden; } .app-layout { display: block; } .sidebar { bottom: 0; left: 0; max-width: min(86vw, 320px); position: fixed; top: 0; transform: translateX(-102%); transition: transform 180ms ease; width: 320px; } .sidebar-nav { flex-basis: 112px; max-height: 24vh; } .chat-shell { height: 100vh; height: 100dvh; } .mobile-topbar { display: flex; } .conversation { padding-top: 16px; } .conversation-header { padding: 22px 0 18px; text-align: left; } .prompt-grid { grid-template-columns: 1fr; } .message-row, .message-row.user { grid-template-columns: 30px minmax(0, 1fr); } .message-row.user .avatar { grid-column: 1; } .message.user { justify-self: start; } .avatar { height: 30px; width: 30px; } }
 @media (max-height: 760px) { .sidebar { gap: 12px; } .model-picker { gap: 6px; padding: 10px; } .thinking-toggle { margin-top: 8px; } .toggle-copy small { display: none; } .memory-clear-button { margin-top: 8px; padding: 8px 10px; } .sidebar-nav { flex-basis: 104px; max-height: 22vh; } }
-@media (max-width: 520px) { .conversation-header p { font-size: 0.94rem; } .prompt-chip { min-height: auto; } .messages { gap: 16px; } .message { font-size: 0.96rem; } .chat-form { border-radius: 24px; } .code-block pre { padding: 13px; } }
+@media (max-width: 520px) { .conversation-header p { font-size: 0.94rem; } .prompt-chip { min-height: auto; } .messages { gap: 16px; } .message { font-size: 0.96rem; } .chat-form { border-radius: 24px; } .code-block pre { padding: 13px; } .markdown-table-card { border-radius: 16px; padding: 12px; } }
