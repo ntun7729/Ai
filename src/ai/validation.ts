@@ -25,6 +25,8 @@ export function parseChatRequest(input: unknown): ChatRequestBody {
     thinking: input.thinking === true,
     webSearch: input.webSearch === true,
     memory: input.memory !== false,
+    conversationId: parseOptionalText(input.conversationId, 120),
+    conversationTitle: parseOptionalText(input.conversationTitle, 120),
     runtime: parseRuntime(input.runtime),
   };
 }
@@ -34,6 +36,7 @@ function parseRuntime(value: unknown): RuntimeSettings | undefined {
 
   return {
     providerBaseUrl: parseOptionalHttpUrl(value.providerBaseUrl),
+    providerToken: parseOptionalToken(value.providerToken),
     logsEnabled: value.logsEnabled === true,
     webFetchEnabled: value.webFetchEnabled !== false,
     googleSearchEnabled: value.googleSearchEnabled !== false,
@@ -46,6 +49,18 @@ function parseOptionalHttpUrl(value: unknown): string | undefined {
   if (url.length > 240) throw new Error("Provider base URL is too long");
   if (!isHttpUrl(url)) throw new Error("Provider base URL must be http or https");
   return url;
+}
+
+function parseOptionalToken(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) return undefined;
+  const token = value.trim();
+  if (token.length > 4000) throw new Error("Provider API key is too long");
+  return token;
+}
+
+function parseOptionalText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) return undefined;
+  return value.trim().slice(0, maxLength);
 }
 
 function parseMessage(value: unknown): ChatMessage {
