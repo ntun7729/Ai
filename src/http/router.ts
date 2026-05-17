@@ -1,3 +1,4 @@
+import { handleAdmin } from "../admin/handler";
 import { handleChat } from "../ai/chat-handler";
 import { handleModels } from "../ai/models-handler";
 import { handleTitle } from "../ai/title-handler";
@@ -15,6 +16,10 @@ export async function routeRequest(request: Request, env: Env): Promise<Response
 
   if (url.pathname === "/api/health" && request.method === "GET") {
     return jsonResponse({ ok: true });
+  }
+
+  if (url.pathname.startsWith("/api/admin/")) {
+    return handleAdmin(request, env);
   }
 
   if (url.pathname === "/api/models" && request.method === "GET") {
