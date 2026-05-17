@@ -1,7 +1,8 @@
-import type { ChatMessage, ChatRequestBody } from "./types";
+import type { ChatContent, ChatMessage, ChatRequestBody } from "./types";
 
 const VALID_ROLES = new Set(["system", "user", "assistant"]);
 const MODEL_ID_PATTERN = /^[A-Za-z0-9._:/-]+$/;
+const DATA_IMAGE_PATTERN = /^data:image\/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/;
 
 export function parseChatRequest(input: unknown): ChatRequestBody {
   if (!isRecord(input)) {
@@ -34,14 +35,56 @@ function parseMessage(value: unknown): ChatMessage {
     throw new Error("Each message must have a valid role");
   }
 
-  if (typeof value.content !== "string" || value.content.trim().length === 0) {
+  return {
+    role: value.role as ChatMessage["role"],
+    content: parseContent(value.content),
+  };
+}
+
+function parseContent(value: unknown): ChatContent {
+  if (typeof value === "string") {
+    if (value.trim().length === 0) throw new Error("Each message must have non-empty content");
+    return value.trim();
+  }
+
+  if (!Array.isArray(value) || value.length === 0) {
     throw new Error("Each message must have non-empty content");
   }
 
-  return {
-    role: value.role as ChatMessage["role"],
-    content: value.content.trim(),
-  };
+  return value.map(parseContentPart);
+}
+
+function parseContentPart(value: unknown): ChatContent[number] {
+  if (!isRecord(value) || typeof value.type !== "string") {
+    throw new Error("Invalid message content part");
+  }
+
+  if (value.type === "text") {
+    if (typeof value.text !== "string" || value.text.trim().length === 0) {
+      throw new Error("Text content part must include text");
+    }
+
+    return {
+      type: "text",
+      text: value.text.trim(),
+    };
+  }
+
+  if (value.type === "image_url") {
+    const imageUrl = isRecord(value.image_url) ? value.image_url.url : undefined;
+    if (typeof imageUrl !== "string" || !DATA_IMAGE_PATTERN.test(imageUrl)) {
+      throw new Error("Image content part must include a valid data image URL");
+    }
+
+    return {
+      type: "image_url",
+      image_url: {
+        url: imageUrl,
+      },
+    };
+  }
+
+  throw new Error("Unsupported message content part");
 }
 
 function parseModel(value: unknown): string | undefined {
