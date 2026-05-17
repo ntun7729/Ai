@@ -9,6 +9,7 @@ const publicDir = join(root, "public");
 const env = await loadDevVars(join(root, ".dev.vars"));
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || env.PORT || 8787);
+const URL_PATTERN = /https?:\/\/[^\s<>)"']+/i;
 
 createServer(async (req, res) => {
   try {
@@ -178,7 +179,7 @@ function messageWantsSearch(content) {
   const text = Array.isArray(content)
     ? content.find((part) => part?.type === "text")?.text || ""
     : String(content || "");
-  return /\b(web\s*search|websearch|search web|latest news|today news|current news)\b/i.test(text);
+  return URL_PATTERN.test(text) || /\b(web\s*search|websearch|search web|latest news|today news|current news)\b/i.test(text);
 }
 
 function callProvider(payload, accept) {
