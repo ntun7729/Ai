@@ -3,6 +3,17 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { addSearchContext } from "./search-local.mjs";
+import {
+  addLocalMemory,
+  addLocalMemoryContext,
+  captureLocalMemoryFromText,
+  clearLocalMemories,
+  deleteLocalMemory,
+  initLocalMemory,
+  latestUserText,
+  listLocalMemories,
+  localMemoryStorageInfo,
+} from "./memory-local.mjs";
 
 const root = process.cwd();
 const publicDir = join(root, "public");
@@ -11,15 +22,18 @@ const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || env.PORT || 8787);
 const URL_PATTERN = /https?:\/\/[^\s<>)"']+/i;
 
+await initLocalMemory();
+
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || `${host}:${port}`}`);
 
     if (req.method === "OPTIONS") return send(res, 204, "");
-    if (url.pathname === "/api/health" && req.method === "GET") return sendJson(res, 200, health());
+    if (url.pathname === "/api/health" && req.method === "GET") return sendJson(res, 200, await health());
     if (url.pathname === "/api/models" && req.method === "GET") { await handleModels(res); return; }
     if (url.pathname === "/api/chat" && req.method === "POST") { await handleChat(req, res); return; }
     if (url.pathname === "/api/title" && req.method === "POST") { await handleTitle(req, res); return; }
+    if (url.pathname === "/api/memory" || url.pathname === "/api/memory/clear" || url.pathname.startsWith("/api/memory/")) { await handleMemory(req, res, url); return; }
 
     await serveStatic(url.pathname, res);
   } catch (error) {
@@ -27,8 +41,8 @@ createServer(async (req, res) => {
     log("error", { message: msg });
     sendJson(res, 500, { error: msg });
   }
-}).listen(port, host, () => {
-  const info = health();
+}).listen(port, host, async () => {
+  const info = await health();
   console.log(`Local fallback server running at http://${host}:${port}`);
   console.log("Use this only when wrangler dev cannot start in your environment.");
   console.log(`AI_BASE_URL: ${info.aiBaseUrl}`);
@@ -36,6 +50,7 @@ createServer(async (req, res) => {
   console.log(`AI_MODELS_URL: ${info.aiModelsUrl}`);
   console.log(`AI_MODEL: ${info.aiModel}`);
   console.log(`AI_API_KEY loaded: ${info.hasApiKey ? "yes" : "no"}`);
+  console.log(`Memory storage: ${info.memoryStorage}`);
 });
 
 async function handleModels(res) {
@@ -68,6 +83,35 @@ async function handleModels(res) {
   return sendJson(res, 200, { models, defaultModel });
 }
 
+async function handleMemory(req, res, url) {
+  const storage = await localMemoryStorageInfo();
+
+  if (url.pathname === "/api/memory" && req.method === "GET") {
+    return sendJson(res, 200, { memories: await listLocalMemories(), storage });
+  }
+
+  if (url.pathname === "/api/memory" && req.method === "POST") {
+    const body = await readJson(req);
+    const content = String(body.content || "").trim();
+    if (!content) return sendJson(res, 400, { error: "Memory content is required" });
+    const memory = await addLocalMemory(content, { type: body.type || "fact", source: body.source || "manual" });
+    return sendJson(res, 200, { memory, storage });
+  }
+
+  if (url.pathname === "/api/memory/clear" && req.method === "POST") {
+    await clearLocalMemories();
+    return sendJson(res, 200, { ok: true, storage });
+  }
+
+  const deleteMatch = url.pathname.match(/^\/api\/memory\/([^/]+)$/);
+  if (deleteMatch && req.method === "DELETE") {
+    await deleteLocalMemory(decodeURIComponent(deleteMatch[1]));
+    return sendJson(res, 200, { ok: true, storage });
+  }
+
+  return sendJson(res, 404, { error: "Memory route not found" });
+}
+
 async function handleChat(req, res) {
   const startedAt = Date.now();
   const body = await readJson(req);
@@ -75,18 +119,23 @@ async function handleChat(req, res) {
   const requestedThinking = body.thinking === true;
   const thinking = shouldSendThinking(model, requestedThinking);
   const rawMessages = Array.isArray(body.messages) ? body.messages : [];
+  const memoryEnabled = body.memory !== false;
   const wantsSearch = body.webSearch === true || messageWantsSearch(rawMessages.at(-1)?.content);
 
   if (!apiKey()) return sendJson(res, 500, { error: "Missing AI_API_KEY in .dev.vars" });
   if (rawMessages.length === 0) return sendJson(res, 400, { error: "Request body must include a non-empty messages array" });
 
-  const messages = wantsSearch ? await addSearchContext(env, rawMessages, log) : rawMessages;
+  if (memoryEnabled) await captureLocalMemoryFromText(latestUserText(rawMessages));
+  const memoryMessages = await addLocalMemoryContext(rawMessages, memoryEnabled);
+  const messages = wantsSearch ? await addSearchContext(env, memoryMessages, log) : memoryMessages;
 
   log("chat.request", {
     model,
     thinking,
     requestedThinking,
     webSearch: wantsSearch,
+    memory: memoryEnabled,
+    memoryStorage: await localMemoryStorageInfo(),
     messageCount: messages.length,
     lastRole: rawMessages.at(-1)?.role,
     lastTextPreview: previewContent(rawMessages.at(-1)?.content),
@@ -215,8 +264,8 @@ async function serveStatic(pathname, res) {
   return send(res, 200, await readFile(target), { "Content-Type": contentType(target) });
 }
 
-function health() {
-  return { ok: true, mode: "node-local", aiBaseUrl: baseUrl(), aiChatUrl: chatEndpoint(), aiModelsUrl: modelsEndpoint(), aiModel: modelFromEnv(), hasApiKey: Boolean(apiKey()) };
+async function health() {
+  return { ok: true, mode: "node-local", aiBaseUrl: baseUrl(), aiChatUrl: chatEndpoint(), aiModelsUrl: modelsEndpoint(), aiModel: modelFromEnv(), hasApiKey: Boolean(apiKey()), memoryStorage: await localMemoryStorageInfo() };
 }
 function baseUrl() { return String(env.AI_BASE_URL || "https://api.openai.com").replace(/\/+$/, ""); }
 function apiKey() { return String(env.AI_API_KEY || env.NVIDIA_API_KEY || "").trim(); }
@@ -248,6 +297,6 @@ async function loadDevVars(path) {
   return values;
 }
 function sendJson(res, status, data) { return send(res, status, JSON.stringify(data), { "Content-Type": "application/json; charset=utf-8" }); }
-function send(res, status, body, headers = {}) { res.writeHead(status, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", ...headers }); res.end(body); }
+function send(res, status, body, headers = {}) { res.writeHead(status, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", ...headers }); res.end(body); }
 function contentType(path) { return { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8" }[extname(path)] || "application/octet-stream"; }
 function log(event, details = {}) { console.log(JSON.stringify({ time: new Date().toISOString(), event, ...details })); }
