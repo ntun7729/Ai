@@ -8,6 +8,7 @@ export async function sendChat(messages, model, options = {}) {
       messages,
       model,
       thinking: Boolean(options.thinking),
+      webSearch: Boolean(options.webSearch),
     }),
   });
 
