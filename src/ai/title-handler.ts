@@ -5,6 +5,7 @@ import { createChatCompletion } from "./client";
 import type { ChatMessage } from "./types";
 
 const MODEL_ID_PATTERN = /^[A-Za-z0-9._:/-]+$/;
+const BAD_TITLE_STARTS = ["the user", "user gave", "assistant", "conversation", "response", "answer"];
 
 export async function handleTitle(request: Request, env: Env): Promise<Response> {
   try {
@@ -22,18 +23,18 @@ export async function handleTitle(request: Request, env: Env): Promise<Response>
     const messages: ChatMessage[] = [
       {
         role: "system",
-        content: "Create a short chat title. Return only the title, no quotes, no punctuation at the end. Maximum 6 words.",
+        content: "Create a concise topic title for a chat sidebar. Return only the title. Maximum 5 words.",
       },
       {
         role: "user",
-        content: `User: ${userMessage}\nAssistant: ${assistantMessage}`,
+        content: `Topic source:\nQuestion: ${userMessage}\nAnswer: ${assistantMessage}`,
       },
     ];
 
     const completion = await createChatCompletion(
       { ...config, model },
       messages,
-      { thinking: false, maxTokens: 32, temperature: 0.2 },
+      { thinking: false, maxTokens: 24, temperature: 0.1, stream: false },
     );
 
     const rawTitle = completion.choices?.[0]?.message?.content || "";
@@ -68,16 +69,23 @@ function parseText(value: unknown, field: string): string {
 }
 
 function cleanTitle(value: string): string {
-  return value
+  const title = value
     .replace(/^Title:\s*/i, "")
     .replace(/["'`]/g, "")
     .replace(/[.!?]+$/g, "")
     .trim()
     .split(/\s+/)
-    .slice(0, 8)
+    .slice(0, 6)
     .join(" ");
+
+  const lower = title.toLowerCase();
+  if (BAD_TITLE_STARTS.some((start) => lower.startsWith(start))) {
+    return "";
+  }
+
+  return title;
 }
 
 function fallbackTitle(value: string): string {
-  return value.trim().split(/\s+/).slice(0, 6).join(" ");
+  return value.trim().split(/\s+/).slice(0, 5).join(" ");
 }
