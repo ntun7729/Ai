@@ -34,7 +34,10 @@
   z-index: 90;
 }
 
-.admin-backdrop[hidden] {
+.admin-backdrop[hidden],
+.admin-login[hidden],
+.admin-settings[hidden],
+.admin-error[hidden] {
   display: none !important;
 }
 
@@ -169,14 +172,57 @@
   transform: translateX(22px);
 }
 
-.admin-warning {
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
+.admin-warning,
+.admin-error {
   border-radius: 14px;
-  color: #7c2d12;
   font-size: 0.84rem;
   line-height: 1.4;
   padding: 10px 12px;
+}
+
+.admin-warning {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #7c2d12;
+}
+
+.admin-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.admin-session-row {
+  align-items: center;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  border-radius: 16px;
+  color: #065f46;
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 8px 8px;
+  padding: 10px 12px;
+}
+
+.admin-session-row button,
+.admin-login-button {
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  min-height: 38px;
+  padding: 7px 13px;
+}
+
+.admin-session-row button {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.admin-login-button {
+  background: #111;
+  color: #fff;
+  justify-self: end;
 }
 
 .admin-actions {
