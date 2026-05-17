@@ -30,29 +30,10 @@ export async function createChatCompletion(
   options: ChatOptions = { thinking: false },
 ): Promise<ChatCompletionResponse> {
   const chatUrl = getChatCompletionsUrl(config.baseUrl);
-  const payload: Record<string, unknown> = {
-    model: config.model,
-    messages,
-    temperature: options.temperature ?? 1,
-    top_p: 1,
-    max_tokens: options.maxTokens ?? 16384,
-    stream: options.stream ?? true,
-  };
-
-  if (options.thinking) {
-    payload.chat_template_kwargs = {
-      enable_thinking: true,
-      clear_thinking: false,
-    };
-  }
-
+  const payload = buildChatPayload(config, messages, { ...options, stream: options.stream ?? true });
   const response = await fetch(chatUrl, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json",
-      Accept: "text/event-stream, application/json",
-    },
+    headers: chatHeaders(config, "text/event-stream, application/json"),
     body: JSON.stringify(payload),
   });
 
@@ -65,6 +46,29 @@ export async function createChatCompletion(
   }
 
   return parseProviderResponse(text, chatUrl, config.model);
+}
+
+export async function streamChatCompletion(
+  config: AppConfig,
+  messages: ChatMessage[],
+  options: ChatOptions = { thinking: false },
+): Promise<Response> {
+  const chatUrl = getChatCompletionsUrl(config.baseUrl);
+  const payload = buildChatPayload(config, messages, { ...options, stream: true });
+  const response = await fetch(chatUrl, {
+    method: "POST",
+    headers: chatHeaders(config, "text/event-stream, application/json"),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    const errorData = parseJsonOrNull(text);
+    const message = errorData?.error?.message || text.slice(0, 500) || `AI provider returned HTTP ${response.status}`;
+    throw new Error(message);
+  }
+
+  return response;
 }
 
 export async function listProviderModels(config: AppConfig): Promise<ProviderModel[]> {
@@ -104,6 +108,34 @@ export function getModelsUrl(baseUrl: string): string {
   const suffix = cleanBaseUrl.endsWith("/v1") ? "/models" : "/v1/models";
 
   return `${cleanBaseUrl}${suffix}`;
+}
+
+function buildChatPayload(config: AppConfig, messages: ChatMessage[], options: ChatOptions): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    model: config.model,
+    messages,
+    temperature: options.temperature ?? 1,
+    top_p: 1,
+    max_tokens: options.maxTokens ?? 16384,
+    stream: options.stream ?? true,
+  };
+
+  if (options.thinking) {
+    payload.chat_template_kwargs = {
+      enable_thinking: true,
+      clear_thinking: false,
+    };
+  }
+
+  return payload;
+}
+
+function chatHeaders(config: AppConfig, accept: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${config.apiKey}`,
+    "Content-Type": "application/json",
+    Accept: accept,
+  };
 }
 
 function parseProviderResponse(text: string, chatUrl: string, model: string): ChatCompletionResponse {
