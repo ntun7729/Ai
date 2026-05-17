@@ -58,13 +58,20 @@ export function addMessage(container, role, content) {
 
   const message = document.createElement("div");
   message.className = `message ${role}`;
-  message.textContent = content;
+  setMessageContent(message, content);
 
   row.append(avatar, message);
   container.append(row);
   scrollMessages(container);
 
   return message;
+}
+
+export function updateMessage(message, content) {
+  if (!message) return;
+  setMessageContent(message, content);
+  const container = message.closest("#messages");
+  if (container) scrollMessages(container);
 }
 
 export function renderMessages(container, displayMessages) {
@@ -238,6 +245,10 @@ export function hideAttachmentPreview(container) {
   if (!container) return;
   container.hidden = true;
   container.textContent = "";
+}
+
+function setMessageContent(message, content) {
+  message.textContent = content;
 }
 
 function scrollMessages(container) {
