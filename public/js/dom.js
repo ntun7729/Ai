@@ -94,7 +94,7 @@ export function setModelLabels(model, modelBadge, mobileModelLabel) {
   if (mobileModelLabel) mobileModelLabel.textContent = model;
 }
 
-export function renderConversationList(container, sessions, activeSessionId, onSelectSession) {
+export function renderConversationList(container, sessions, activeSessionId, onSelectSession, onDeleteSession) {
   if (!container) return;
 
   container.textContent = "";
@@ -109,6 +109,10 @@ export function renderConversationList(container, sessions, activeSessionId, onS
   }
 
   for (const session of visibleSessions) {
+    const row = document.createElement("div");
+    row.className = "conversation-list-row";
+    row.dataset.sessionId = session.id;
+
     const button = document.createElement("button");
     button.className = "conversation-item";
     button.type = "button";
@@ -116,7 +120,20 @@ export function renderConversationList(container, sessions, activeSessionId, onS
     button.dataset.sessionId = session.id;
     button.setAttribute("aria-pressed", session.id === activeSessionId ? "true" : "false");
     button.addEventListener("click", () => onSelectSession(session.id));
-    container.append(button);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "conversation-delete-button";
+    deleteButton.type = "button";
+    deleteButton.textContent = "×";
+    deleteButton.title = "Delete conversation";
+    deleteButton.setAttribute("aria-label", `Delete conversation: ${session.title}`);
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onDeleteSession?.(session.id);
+    });
+
+    row.append(button, deleteButton);
+    container.append(row);
   }
 }
 
