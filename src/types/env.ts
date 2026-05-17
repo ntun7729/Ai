@@ -1,5 +1,6 @@
 export interface Env {
   ASSETS: Fetcher;
+  DB?: D1Database;
   AI_API_KEY?: string;
   NVIDIA_API_KEY?: string;
   AI_BASE_URL: string;
