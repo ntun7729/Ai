@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <title>AI Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260517-1" />
-    <link rel="stylesheet" href="/mobile.css?v=20260517-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260517-2" />
+    <link rel="stylesheet" href="/mobile.css?v=20260517-2" />
   </head>
   <body>
     <div class="app-layout">
@@ -18,13 +18,21 @@
           </div>
         </div>
 
-        <button class="new-chat-button" type="button">+ New chat</button>
+        <button id="new-chat-button" class="new-chat-button" type="button">+ New chat</button>
+
+        <div class="model-picker">
+          <label for="model-select">Model</label>
+          <select id="model-select" name="model">
+            <option value="openai/gpt-oss-120b" selected>openai/gpt-oss-120b</option>
+            <option value="z-ai/glm-5.1">z-ai/glm-5.1</option>
+          </select>
+        </div>
 
         <nav class="sidebar-nav" aria-label="Saved chats">
-          <p class="nav-label">Today</p>
-          <a href="#" aria-current="page">Current conversation</a>
-          <a href="#">NVIDIA API test</a>
-          <a href="#">Website ideas</a>
+          <p class="nav-label">Conversations</p>
+          <div id="conversation-list" class="conversation-list">
+            <p class="empty-conversations">No conversations yet</p>
+          </div>
         </nav>
 
         <div class="sidebar-footer">
@@ -42,14 +50,14 @@
           </button>
           <div>
             <p class="mobile-title">AI Chat</p>
-            <p class="mobile-subtitle">Worker + NVIDIA</p>
+            <p id="mobile-model-label" class="mobile-subtitle">openai/gpt-oss-120b</p>
           </div>
           <div class="topbar-spacer" aria-hidden="true"></div>
         </header>
 
         <section class="conversation" aria-label="AI chat conversation">
           <div class="conversation-header">
-            <div class="model-badge">openai/gpt-oss-120b</div>
+            <div id="model-badge" class="model-badge">openai/gpt-oss-120b</div>
             <h1>How can I help?</h1>
             <p>Ask a question, brainstorm, code, summarize, or plan your next feature.</p>
           </div>
@@ -82,6 +90,6 @@
       </main>
     </div>
 
-    <script type="module" src="/js/main.js?v=20260517-1"></script>
+    <script type="module" src="/js/main.js?v=20260517-2"></script>
   </body>
 </html>
