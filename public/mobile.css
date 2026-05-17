@@ -34,49 +34,94 @@
   }
 
   .mobile-topbar {
+    background: var(--bg);
     display: flex;
+    min-height: 48px;
+    padding: 5px 10px;
     position: sticky;
     top: 0;
     z-index: 10;
-    background: var(--bg);
+  }
+
+  .icon-button {
+    font-size: 1rem;
+    height: 34px;
+    width: 34px;
+  }
+
+  .mobile-title {
+    font-size: 0.92rem;
+  }
+
+  .mobile-subtitle {
+    font-size: 0.7rem;
+  }
+
+  .topbar-spacer {
+    width: 34px;
   }
 
   .conversation {
-    padding: 12px 14px 16px;
+    padding: 10px 12px 12px;
   }
 
   .conversation-header {
-    padding: 18px 0 16px;
+    padding: 10px 0 12px;
     text-align: left;
   }
 
   h1 {
-    font-size: clamp(2rem, 11vw, 3rem);
+    font-size: clamp(1.7rem, 8vw, 2.2rem);
+    letter-spacing: -0.045em;
+    margin-bottom: 8px;
+  }
+
+  .conversation-header p {
+    font-size: 0.88rem;
+    line-height: 1.4;
   }
 
   .model-badge {
-    font-size: 0.74rem;
-    margin-bottom: 12px;
+    font-size: 0.68rem;
+    margin-bottom: 8px;
     max-width: 100%;
     overflow: hidden;
+    padding: 5px 9px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .prompt-grid {
     grid-template-columns: 1fr;
-    margin-bottom: 20px;
+    gap: 8px;
+    margin-bottom: 14px;
   }
 
   .prompt-chip {
-    min-height: 48px;
-    padding: 12px 14px;
+    border-radius: 13px;
+    font-size: 0.9rem;
+    min-height: 40px;
+    padding: 9px 12px;
+  }
+
+  body.has-chat .conversation-header,
+  body.has-chat .prompt-grid {
+    display: none;
+  }
+
+  body.has-chat .conversation {
+    padding-top: 12px;
+  }
+
+  .messages {
+    gap: 13px;
+    max-width: 100%;
   }
 
   .message-row,
   .message-row.user {
-    grid-template-columns: 30px minmax(0, 1fr);
-    gap: 10px;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 8px;
   }
 
   .message-row.user .avatar {
@@ -84,22 +129,49 @@
   }
 
   .message.user {
+    border-radius: 14px;
     justify-self: start;
-    max-width: 100%;
+    max-width: 92%;
+    padding: 8px 11px;
+  }
+
+  .message.assistant {
+    padding: 1px 0;
+  }
+
+  .message {
+    font-size: 0.92rem;
+    line-height: 1.48;
   }
 
   .avatar {
-    height: 30px;
-    width: 30px;
+    font-size: 0.66rem;
+    height: 26px;
+    width: 26px;
   }
 
   .composer-shell {
-    padding: 12px 12px max(10px, env(safe-area-inset-bottom));
+    padding: 8px 8px max(8px, env(safe-area-inset-bottom));
   }
 
   .chat-form {
-    border-radius: 24px;
+    border-radius: 22px;
+    gap: 8px;
     max-width: 100%;
+    padding: 7px 7px 7px 13px;
+  }
+
+  textarea {
+    font-size: 0.92rem;
+    max-height: 130px;
+    min-height: 28px;
+    padding: 6px 0;
+  }
+
+  .send-button {
+    font-size: 1rem;
+    height: 34px;
+    width: 34px;
   }
 
   .composer-note {
@@ -109,24 +181,23 @@
 
 @media (max-width: 430px) {
   .mobile-topbar {
-    min-height: 54px;
+    min-height: 46px;
   }
 
   .conversation {
-    padding-inline: 12px;
+    padding-inline: 10px;
   }
 
-  .conversation-header p {
-    font-size: 0.92rem;
+  .prompt-chip {
+    min-height: 38px;
   }
 
   .messages {
-    gap: 15px;
+    gap: 12px;
   }
 
   .message {
-    font-size: 0.95rem;
-    line-height: 1.55;
+    font-size: 0.9rem;
   }
 
   .sidebar {
