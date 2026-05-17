@@ -37,6 +37,7 @@ function createSession(model) {
 let sessions = [];
 let activeSessionId = "";
 let pendingAttachment = null;
+let webSearchToggle = null;
 
 export function setupChat(elements) {
   const { form, prompt, promptChips, modelSelect, modelBadge, mobileModelLabel, newChatButton } = elements;
@@ -45,6 +46,7 @@ export function setupChat(elements) {
   setupAttachmentPicker(elements, (file) => handleAttachmentSelected(elements, file), () => {
     pendingAttachment = null;
   });
+  webSearchToggle = createWebSearchToggle();
   setupPromptInput(prompt, form);
   setupPromptChips(promptChips, prompt);
   setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements);
@@ -90,7 +92,10 @@ async function submitMessage(elements) {
   setLoading(sendButton, true);
 
   try {
-    const answer = await sendChat(session.messages, modelSelect.value, { thinking: thinkingToggle.checked });
+    const answer = await sendChat(session.messages, modelSelect.value, {
+      thinking: thinkingToggle.checked,
+      webSearch: Boolean(webSearchToggle?.checked),
+    });
     session.messages.push({ role: "assistant", content: answer });
     session.displayMessages.push({ role: "assistant", content: answer || "No answer returned." });
     addMessage(messages, "assistant", answer || "No answer returned.");
@@ -102,6 +107,25 @@ async function submitMessage(elements) {
     setLoading(sendButton, false);
     prompt.focus();
   }
+}
+
+function createWebSearchToggle() {
+  const modelPicker = document.querySelector(".model-picker");
+  if (!modelPicker || document.querySelector("#web-search-toggle")) return document.querySelector("#web-search-toggle");
+
+  const label = document.createElement("label");
+  label.className = "thinking-toggle";
+  label.htmlFor = "web-search-toggle";
+  label.innerHTML = `
+    <input id="web-search-toggle" type="checkbox" />
+    <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+    <span class="toggle-copy">
+      <strong>Web search</strong>
+      <small>Use Worker-side search results</small>
+    </span>
+  `;
+  modelPicker.append(label);
+  return label.querySelector("#web-search-toggle");
 }
 
 async function handleAttachmentSelected(elements, file) {
