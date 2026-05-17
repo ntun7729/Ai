@@ -1,4 +1,4 @@
-import { fetchModels, sendChat } from "./api.js";
+import { fetchModels, generateTitle, sendChat } from "./api.js";
 import {
   addMessage,
   autoResizeTextarea,
@@ -22,6 +22,7 @@ function createSession(model) {
     id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
     model,
     title: "New chat",
+    titleStatus: "pending",
     hasUserMessage: false,
     messages: [createSystemMessage(model)],
     displayMessages: [{ role: "assistant", content: `New chat started with ${model}.` }],
@@ -68,6 +69,7 @@ async function submitMessage(elements) {
   session.hasUserMessage = true;
   if (session.title === "New chat") {
     session.title = makeConversationTitle(userText);
+    session.titleStatus = "fallback";
   }
   session.messages.push({ role: "user", content: userText });
   session.displayMessages.push({ role: "user", content: userText });
@@ -82,6 +84,7 @@ async function submitMessage(elements) {
     session.messages.push({ role: "assistant", content: answer });
     session.displayMessages.push({ role: "assistant", content: answer || "No answer returned." });
     addMessage(messages, "assistant", answer || "No answer returned.");
+    maybeGenerateSessionTitle(elements, session, userText, answer);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Something went wrong.";
     session.displayMessages.push({ role: "error", content: message });
@@ -89,6 +92,29 @@ async function submitMessage(elements) {
   } finally {
     setLoading(sendButton, false);
     prompt.focus();
+  }
+}
+
+async function maybeGenerateSessionTitle(elements, session, userText, answer) {
+  if (!answer || session.titleStatus === "ai") return;
+
+  session.titleStatus = "generating";
+  renderSidebar(elements);
+
+  try {
+    const title = await generateTitle({
+      model: session.model,
+      userMessage: userText,
+      assistantMessage: answer,
+    });
+
+    session.title = cleanTitle(title) || session.title;
+    session.titleStatus = "ai";
+  } catch (error) {
+    console.warn("Failed to generate chat title", error);
+    session.titleStatus = "fallback";
+  } finally {
+    renderSidebar(elements);
   }
 }
 
@@ -213,4 +239,15 @@ function getActiveSession() {
 
 function makeConversationTitle(text) {
   return text.length > 32 ? `${text.slice(0, 32)}...` : text;
+}
+
+function cleanTitle(title) {
+  return String(title || "")
+    .replace(/^Title:\s*/i, "")
+    .replace(/["'`]/g, "")
+    .replace(/[.!?]+$/g, "")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 8)
+    .join(" ");
 }
