@@ -1,4 +1,4 @@
-import { fetchModels, sendChat } from "./api.js";
+import { fetchModels, streamChat } from "./api.js";
 import {
   addMessage,
   autoResizeTextarea,
@@ -11,6 +11,7 @@ import {
   setupAttachmentPicker,
   setupMobileSidebar,
   showAttachmentPreview,
+  updateMessage,
 } from "./dom.js";
 
 const STORAGE_KEY = "ai-chat.sessions.v1";
@@ -120,21 +121,37 @@ async function submitMessage(elements) {
   renderSidebar(elements);
   setLoading(sendButton, true);
 
+  let streamedAnswer = "";
+  const assistantMessage = addMessage(messages, "assistant", "");
+
   try {
-    const answer = await sendChat(session.messages, modelSelect.value, {
+    const answer = await streamChat(session.messages, modelSelect.value, {
       thinking: thinkingToggle.checked,
       webSearch: Boolean(webSearchToggle?.checked),
+      conversationId: session.id,
+      conversationTitle: session.title,
+    }, {
+      onDelta: (content) => {
+        streamedAnswer += content;
+        updateMessage(assistantMessage, streamedAnswer);
+      },
+      onError: (message) => {
+        if (!streamedAnswer) updateMessage(assistantMessage, message);
+      },
     });
-    session.messages.push({ role: "assistant", content: answer });
-    session.displayMessages.push({ role: "assistant", content: answer || "No answer returned." });
+
+    const finalAnswer = answer || streamedAnswer || "No answer returned.";
+    updateMessage(assistantMessage, finalAnswer);
+    session.messages.push({ role: "assistant", content: finalAnswer });
+    session.displayMessages.push({ role: "assistant", content: finalAnswer });
     session.updatedAt = Date.now();
-    addMessage(messages, "assistant", answer || "No answer returned.");
     saveState();
   } catch (error) {
     const message = error instanceof Error ? error.message : "Something went wrong.";
+    updateMessage(assistantMessage, message);
+    assistantMessage.classList.add("error");
     session.displayMessages.push({ role: "error", content: message });
     session.updatedAt = Date.now();
-    addMessage(messages, "error", message);
     saveState();
   } finally {
     setLoading(sendButton, false);
