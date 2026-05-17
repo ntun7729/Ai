@@ -11,6 +11,18 @@ export interface ChatOptions {
   temperature?: number;
 }
 
+interface StreamDelta {
+  content?: string;
+  reasoning?: string;
+  reasoning_content?: string;
+}
+
+interface StreamChunk {
+  choices?: Array<{
+    delta?: StreamDelta;
+  }>;
+}
+
 export async function createChatCompletion(
   config: AppConfig,
   messages: ChatMessage[],
@@ -121,6 +133,7 @@ function parseProviderResponse(text: string, chatUrl: string, model: string): Ch
 
 function parseServerSentEvents(text: string): string {
   let answer = "";
+  let reasoning = "";
 
   for (const line of text.split(/\r?\n/)) {
     if (!line.startsWith("data:")) continue;
@@ -128,20 +141,34 @@ function parseServerSentEvents(text: string): string {
     const payload = line.slice("data:".length).trim();
     if (!payload || payload === "[DONE]") continue;
 
-    const chunk = parseJsonOrNull(payload);
-    const content = chunk?.choices?.[0]?.delta?.content;
+    const chunk = parseStreamChunk(payload);
+    const delta = chunk?.choices?.[0]?.delta;
 
-    if (typeof content === "string") {
-      answer += content;
+    if (typeof delta?.content === "string") {
+      answer += delta.content;
+    }
+
+    if (typeof delta?.reasoning_content === "string") {
+      reasoning += delta.reasoning_content;
+    } else if (typeof delta?.reasoning === "string") {
+      reasoning += delta.reasoning;
     }
   }
 
-  return answer;
+  return answer || reasoning;
 }
 
 function parseJsonOrNull(text: string): ChatCompletionResponse | null {
   try {
     return JSON.parse(text) as ChatCompletionResponse;
+  } catch {
+    return null;
+  }
+}
+
+function parseStreamChunk(text: string): StreamChunk | null {
+  try {
+    return JSON.parse(text) as StreamChunk;
   } catch {
     return null;
   }
