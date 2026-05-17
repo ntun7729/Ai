@@ -138,6 +138,25 @@
   line-height: 1.25;
 }
 
+.memory-clear-button {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  margin-top: 10px;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.memory-clear-button:hover,
+.memory-clear-button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  outline: none;
+}
+
 .conversation-list-row {
   align-items: center;
   border-radius: 12px;
