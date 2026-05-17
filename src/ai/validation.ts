@@ -23,6 +23,7 @@ export function parseChatRequest(input: unknown): ChatRequestBody {
     messages,
     model: parseModel(input.model),
     thinking: input.thinking === true,
+    webSearch: input.webSearch === true,
   };
 }
 
