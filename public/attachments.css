@@ -34,3 +34,68 @@ input[type="file"][hidden] {
   cursor: pointer;
   margin-left: auto;
 }
+
+.message.assistant p,
+.message.assistant ul,
+.message.assistant ol,
+.message.assistant h3 {
+  margin: 0 0 14px;
+}
+
+.message.assistant h3 {
+  font-size: 1.04em;
+  line-height: 1.25;
+}
+
+.message.assistant ul,
+.message.assistant ol {
+  padding-left: 22px;
+}
+
+.message.assistant li {
+  margin: 0 0 8px;
+}
+
+.markdown-cards {
+  display: grid;
+  gap: 12px;
+  margin: 10px 0 16px;
+}
+
+.markdown-card {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.markdown-card-row {
+  display: grid;
+  gap: 4px;
+}
+
+.markdown-card-row strong {
+  color: rgba(255, 255, 255, 0.78);
+  display: block;
+  font-size: 0.86em;
+  line-height: 1.2;
+}
+
+.markdown-card-row span {
+  display: block;
+  line-height: 1.45;
+}
+
+.message.assistant a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.message.assistant code {
+  background: rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  padding: 1px 5px;
+}
