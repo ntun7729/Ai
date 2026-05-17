@@ -18,7 +18,7 @@ export async function buildSearchContext(env: Env, messages: ChatMessage[]): Pro
   if (results.length === 0) {
     return [
       "Web search was requested, but the Worker could not reach direct search sources or a configured fallback.",
-      "Do not invent search results. Tell the user web search failed and suggest trying again or configuring SEARCH_FETCH_PROXY_URL.",
+      "Do not invent search results. Tell the user web search failed and suggest trying again.",
     ].join(" ");
   }
 
@@ -40,7 +40,7 @@ export async function searchWeb(env: Env, query: string): Promise<SearchResult[]
     results.push(...await duckDuckGoLiteSearch(env, query).catch(() => []));
   }
   if (results.length < SEARCH_RESULT_LIMIT) {
-    results.push(...await proxyResultSearch(env, query).catch(() => []));
+    results.push(...await fallbackResultSearch(env, query).catch(() => []));
   }
 
   return uniqueResults(results).slice(0, SEARCH_RESULT_LIMIT);
@@ -86,11 +86,11 @@ async function duckDuckGoLiteSearch(env: Env, query: string): Promise<SearchResu
   return results;
 }
 
-async function proxyResultSearch(env: Env, query: string): Promise<SearchResult[]> {
-  const proxy = (env.SEARCH_PROXY_URL || "").trim();
-  if (!proxy) return [];
+async function fallbackResultSearch(env: Env, query: string): Promise<SearchResult[]> {
+  const endpoint = (env.SEARCH_PROXY_URL || "").trim();
+  if (!endpoint) return [];
 
-  const url = new URL(proxy);
+  const url = new URL(endpoint);
   url.searchParams.set("q", query);
 
   const response = await fetchWithTimeout(url.toString(), { headers: { Accept: "application/json" } });
@@ -119,17 +119,17 @@ async function fetchText(env: Env, targetUrl: string): Promise<string> {
 
   if (direct?.ok) return direct.text();
 
-  const proxyText = await fetchTextViaProxy(env, targetUrl).catch(() => "");
-  if (proxyText) return proxyText;
+  const relayText = await fetchTextViaFallback(env, targetUrl).catch(() => "");
+  if (relayText) return relayText;
 
   throw new Error("direct web fetch failed");
 }
 
-async function fetchTextViaProxy(env: Env, targetUrl: string): Promise<string> {
-  const proxy = (env.SEARCH_FETCH_PROXY_URL || env.SEARCH_PROXY_URL || "").trim();
-  if (!proxy) return "";
+async function fetchTextViaFallback(env: Env, targetUrl: string): Promise<string> {
+  const endpoint = (env.SEARCH_PROXY_URL || "").trim();
+  if (!endpoint) return "";
 
-  const url = new URL(proxy);
+  const url = new URL(endpoint);
   url.searchParams.set("url", targetUrl);
 
   const response = await fetchWithTimeout(url.toString(), {
