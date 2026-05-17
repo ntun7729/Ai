@@ -1,7 +1,10 @@
 export function renderMarkdown(container, text) {
   container.textContent = "";
 
-  const lines = String(text || "").replace(/\r\n/g, "\n").replace(/<br\s*\/?\s*>/gi, "\n").split("\n");
+  const lines = String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .split("\n");
   let index = 0;
 
   while (index < lines.length) {
@@ -9,6 +12,13 @@ export function renderMarkdown(container, text) {
 
     if (!line.trim()) {
       index += 1;
+      continue;
+    }
+
+    if (isFenceStart(line)) {
+      const { node, nextIndex } = renderCodeBlock(lines, index);
+      container.append(node);
+      index = nextIndex;
       continue;
     }
 
@@ -55,6 +65,7 @@ export function renderMarkdown(container, text) {
     while (
       index < lines.length &&
       lines[index].trim() &&
+      !isFenceStart(lines[index]) &&
       !/^#{1,4}\s+/.test(lines[index].trim()) &&
       !/^[-*]\s+/.test(lines[index].trim()) &&
       !/^\d+[.)]\s+/.test(lines[index].trim()) &&
@@ -68,6 +79,66 @@ export function renderMarkdown(container, text) {
     appendInline(paragraph, paragraphLines.join(" "));
     container.append(paragraph);
   }
+}
+
+export function copyText(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+  return Promise.resolve();
+}
+
+function isFenceStart(line) {
+  return /^```/.test(String(line || "").trim());
+}
+
+function renderCodeBlock(lines, index) {
+  const firstLine = lines[index].trim();
+  const language = firstLine.replace(/^```/, "").trim() || "code";
+  index += 1;
+
+  const codeLines = [];
+  while (index < lines.length && !isFenceStart(lines[index])) {
+    codeLines.push(lines[index]);
+    index += 1;
+  }
+  if (index < lines.length && isFenceStart(lines[index])) index += 1;
+
+  const code = codeLines.join("\n").replace(/\n+$/g, "");
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "code-block";
+
+  const header = document.createElement("div");
+  header.className = "code-block-header";
+
+  const label = document.createElement("span");
+  label.className = "code-block-language";
+  label.textContent = language;
+
+  const copyButton = document.createElement("button");
+  copyButton.className = "copy-button code-copy-button";
+  copyButton.type = "button";
+  copyButton.textContent = "Copy";
+  copyButton.addEventListener("click", () => copyWithStatus(copyButton, code));
+
+  header.append(label, copyButton);
+
+  const pre = document.createElement("pre");
+  const codeEl = document.createElement("code");
+  codeEl.textContent = code;
+  pre.append(codeEl);
+
+  wrapper.append(header, pre);
+  return { node: wrapper, nextIndex: index };
 }
 
 function isTableStart(lines, index) {
@@ -128,9 +199,7 @@ function appendInline(parent, text) {
   let match;
 
   while ((match = pattern.exec(normalized)) !== null) {
-    if (match.index > lastIndex) {
-      parent.append(document.createTextNode(normalized.slice(lastIndex, match.index)));
-    }
+    if (match.index > lastIndex) parent.append(document.createTextNode(normalized.slice(lastIndex, match.index)));
 
     const token = match[0];
     if (token.startsWith("**")) {
@@ -162,7 +231,23 @@ function appendInline(parent, text) {
     lastIndex = match.index + token.length;
   }
 
-  if (lastIndex < normalized.length) {
-    parent.append(document.createTextNode(normalized.slice(lastIndex)));
-  }
+  if (lastIndex < normalized.length) parent.append(document.createTextNode(normalized.slice(lastIndex)));
+}
+
+function copyWithStatus(button, text) {
+  const oldText = button.textContent;
+  copyText(text)
+    .then(() => {
+      button.textContent = "Copied";
+      button.classList.add("copied");
+    })
+    .catch(() => {
+      button.textContent = "Failed";
+    })
+    .finally(() => {
+      window.setTimeout(() => {
+        button.textContent = oldText;
+        button.classList.remove("copied");
+      }, 1200);
+    });
 }
