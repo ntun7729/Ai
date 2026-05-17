@@ -1,24 +1,30 @@
-const SEARCH_RESULT_LIMIT = 5;
+const SEARCH_RESULT_LIMIT = 8;
 const REQUEST_TIMEOUT_MS = 8000;
 
 export async function addSearchContext(env, messages, log = () => {}) {
-  const query = latestUserText(messages);
+  const rawQuery = latestUserText(messages);
+  const query = normalizeSearchQuery(rawQuery);
   if (!query) return messages;
 
-  log("search.request", { query: preview(query) });
+  log("search.request", { query: preview(query), rawQuery: preview(rawQuery) });
   const results = await searchWeb(env, query, log);
   log("search.results", { count: results.length });
 
   const context = results.length > 0
     ? [
-        "Fresh web search results fetched by the local fallback server. Use them only when relevant. Include source URLs in the answer.",
+        "Fresh web results were fetched by the local fallback server before this answer.",
+        "Synthesize the results into a helpful answer instead of listing raw search links.",
+        "For news, give a summary, key details, and why each item matters.",
+        "Prefer reliable or primary outlets when results overlap, and mention uncertainty when details are thin.",
+        "Use source names naturally. Do not print long raw URLs unless the user asks for links.",
+        "Results:",
         ...results.map((item, index) => [
-          `[${index + 1}] ${item.title}`,
-          item.url,
-          item.snippet,
+          `[${index + 1}] Title: ${item.title}`,
+          `URL: ${item.url}`,
+          item.snippet ? `Snippet: ${item.snippet}` : "",
         ].filter(Boolean).join("\n")),
       ].join("\n\n")
-    : "Web search was requested, but the local fallback server could not fetch direct search sources or fallback results. Do not invent search results. Tell the user web search failed and suggest trying again.";
+    : "Web search was requested, but the local fallback server could not fetch direct web results or fallback results. Say that search failed and ask the user to try again.";
 
   return [...messages, { role: "system", content: context }];
 }
@@ -154,6 +160,20 @@ function latestUserText(messages) {
     }
   }
   return "";
+}
+
+function normalizeSearchQuery(query) {
+  const cleaned = clean(query)
+    .replace(/lastest/gi, "latest")
+    .replace(/\b(web\s*search|websearch|search web|find)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/^(latest|today|current)?\s*news\.?$/i.test(cleaned) || cleaned.length === 0) {
+    return "top stories today";
+  }
+
+  return cleaned;
 }
 
 function normalizeDuckDuckGoUrl(value) {
