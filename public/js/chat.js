@@ -3,15 +3,18 @@ import {
   addMessage,
   autoResizeTextarea,
   clearMessages,
+  hideAttachmentPreview,
   renderConversationList,
   renderMessages,
   setLoading,
   setModelLabels,
-  setupAttachmentPlaceholder,
+  setupAttachmentPicker,
   setupMobileSidebar,
+  showAttachmentPreview,
 } from "./dom.js";
 
 const STOP_WORDS = new Set(["a", "an", "the", "is", "are", "to", "of", "and", "or", "in", "on", "for", "with", "what", "where", "when", "why", "how"]);
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 function createSystemMessage(model) {
   return {
@@ -33,12 +36,15 @@ function createSession(model) {
 
 let sessions = [];
 let activeSessionId = "";
+let pendingAttachment = null;
 
 export function setupChat(elements) {
   const { form, prompt, promptChips, modelSelect, modelBadge, mobileModelLabel, newChatButton } = elements;
 
   setupMobileSidebar(elements);
-  setupAttachmentPlaceholder(elements);
+  setupAttachmentPicker(elements, (file) => handleAttachmentSelected(elements, file), () => {
+    pendingAttachment = null;
+  });
   setupPromptInput(prompt, form);
   setupPromptChips(promptChips, prompt);
   setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements);
@@ -58,22 +64,28 @@ export function setupChat(elements) {
 }
 
 async function submitMessage(elements) {
-  const { prompt, sendButton, messages, modelSelect, thinkingToggle } = elements;
+  const { prompt, sendButton, messages, modelSelect, thinkingToggle, attachmentPreview } = elements;
   const userText = prompt.value.trim();
-  if (!userText || sendButton.disabled) return;
+  if ((!userText && !pendingAttachment) || sendButton.disabled) return;
 
   const session = getActiveSession();
   if (!session) return;
 
+  const attachment = pendingAttachment;
+  const displayText = buildDisplayText(userText, attachment);
+  const providerContent = buildProviderContent(userText, attachment);
+
   document.body.classList.add("has-chat");
   prompt.value = "";
   autoResizeTextarea(prompt);
+  pendingAttachment = null;
+  hideAttachmentPreview(attachmentPreview);
 
   session.hasUserMessage = true;
-  if (session.title === "New chat") session.title = makeLocalTitle(userText);
-  session.messages.push({ role: "user", content: userText });
-  session.displayMessages.push({ role: "user", content: userText });
-  addMessage(messages, "user", userText);
+  if (session.title === "New chat") session.title = makeLocalTitle(userText || attachment?.name || "Image");
+  session.messages.push({ role: "user", content: providerContent });
+  session.displayMessages.push({ role: "user", content: displayText });
+  addMessage(messages, "user", displayText);
   renderSidebar(elements);
   setLoading(sendButton, true);
 
@@ -90,6 +102,59 @@ async function submitMessage(elements) {
     setLoading(sendButton, false);
     prompt.focus();
   }
+}
+
+async function handleAttachmentSelected(elements, file) {
+  if (!file.type.startsWith("image/")) {
+    pendingAttachment = null;
+    showAttachmentPreview(elements.attachmentPreview, {
+      kind: "file",
+      name: file.name,
+    });
+    return;
+  }
+
+  if (file.size > MAX_IMAGE_BYTES) {
+    pendingAttachment = null;
+    showAttachmentPreview(elements.attachmentPreview, {
+      kind: "file",
+      name: "Image too large. Use an image under 5 MB.",
+    });
+    return;
+  }
+
+  const dataUrl = await fileToDataUrl(file);
+  pendingAttachment = {
+    kind: "image",
+    name: file.name,
+    type: file.type || "image/png",
+    dataUrl,
+  };
+  showAttachmentPreview(elements.attachmentPreview, pendingAttachment);
+}
+
+function buildProviderContent(text, attachment) {
+  if (!attachment || attachment.kind !== "image") return text;
+
+  return [
+    { type: "text", text: text || "Describe this image" },
+    { type: "image_url", image_url: { url: attachment.dataUrl } },
+  ];
+}
+
+function buildDisplayText(text, attachment) {
+  if (!attachment) return text;
+  const label = attachment.kind === "image" ? `[Image: ${attachment.name}]` : `[File: ${attachment.name}]`;
+  return text ? `${text}\n${label}` : label;
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(new Error("Failed to read file")));
+    reader.readAsDataURL(file);
+  });
 }
 
 function setupPromptInput(prompt, form) {
@@ -156,6 +221,8 @@ function startNewSession(elements, model, showNotice) {
   session.displayMessages = [{ role: "assistant", content: showNotice ? `New chat started with ${model}.` : "Hi! Ask me something and I will help." }];
   sessions.unshift(session);
   activeSessionId = session.id;
+  pendingAttachment = null;
+  hideAttachmentPreview(elements.attachmentPreview);
   document.body.classList.remove("has-chat");
   elements.prompt.value = "";
   autoResizeTextarea(elements.prompt);
