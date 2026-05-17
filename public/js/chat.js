@@ -27,6 +27,7 @@ async function submitMessage({ prompt, sendButton, messages }) {
   const userText = prompt.value.trim();
   if (!userText || sendButton.disabled) return;
 
+  document.body.classList.add("has-chat");
   prompt.value = "";
   autoResizeTextarea(prompt);
   conversation.push({ role: "user", content: userText });
