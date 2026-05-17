@@ -8,11 +8,18 @@ export async function addSearchContext(env, messages, log = () => {}) {
 
   const urls = extractUrls(rawQuery);
   const query = normalizeSearchQuery(rawQuery);
-  const shouldSearch = urls.length === 0 || messageWantsSearch(rawQuery);
-
-  log("search.request", { query: preview(query), rawQuery: preview(rawQuery), urlCount: urls.length, shouldSearch });
 
   const pageResults = await fetchLinkedPages(env, urls, log);
+  const shouldSearch = shouldRunSearch(rawQuery, urls, pageResults);
+
+  log("search.request", {
+    query: preview(query),
+    rawQuery: preview(rawQuery),
+    urlCount: urls.length,
+    pageCount: pageResults.length,
+    shouldSearch,
+  });
+
   const searchResults = shouldSearch ? await searchWeb(env, query, log) : [];
   const results = uniqueResults([...pageResults, ...searchResults]).slice(0, SEARCH_RESULT_LIMIT);
 
@@ -20,10 +27,12 @@ export async function addSearchContext(env, messages, log = () => {}) {
 
   const context = results.length > 0
     ? [
+        `Current app date: ${new Date().toISOString().slice(0, 10)}.`,
         "Fresh web results and linked-page text were fetched by the local fallback server before this answer.",
         "If a linked page was fetched, use that page text as the main source for the answer.",
         "Synthesize the results into a helpful answer instead of listing raw search links.",
-        "For news, give a summary, key details, and why each item matters.",
+        "For news, give a summary, key details, why each item matters, and mention the published date if provided.",
+        "Do not claim a story is from today unless a result includes a current published date.",
         "Prefer reliable or primary outlets when results overlap, and mention uncertainty when details are thin.",
         "Use source names naturally. Do not print long raw URLs unless the user asks for links.",
         "Results:",
@@ -44,16 +53,35 @@ export function messageHasUrl(content) {
 
 export function messageWantsSearch(content) {
   const text = textFromContent(content);
-  return /\b(web\s*search|websearch|search web|latest news|today news|current news|find latest|find today|search)\b/i.test(text) || messageHasUrl(text);
+  return /\b(web\s*search|websearch|search web|latest|lastest|today|current|news|find latest|find lastest|find today|google search|search)\b/i.test(text) || messageHasUrl(text);
+}
+
+function shouldRunSearch(rawQuery, urls, pageResults) {
+  if (urls.length === 0) return true;
+  if (pageResults.length > 0 && isLinkSummaryRequest(rawQuery)) return false;
+  return messageWantsSearch(rawQuery);
+}
+
+function isLinkSummaryRequest(text) {
+  return /\b(read this|summari[sz]e|explain this|what is this|analy[sz]e this)\b/i.test(text);
 }
 
 async function searchWeb(env, query, log) {
   const results = [];
 
-  results.push(...await googleSearch(env, query, log).catch((error) => {
-    log("search.google_error", { message: message(error) });
-    return [];
-  }));
+  if (isGeneralNewsQuery(query)) {
+    results.push(...await googleNewsTopStories(env, log).catch((error) => {
+      log("search.google_top_news_error", { message: message(error) });
+      return [];
+    }));
+  }
+
+  if (results.length < SEARCH_RESULT_LIMIT && !isGeneralNewsQuery(query)) {
+    results.push(...await googleSearch(env, query, log).catch((error) => {
+      log("search.google_error", { message: message(error) });
+      return [];
+    }));
+  }
 
   if (results.length < SEARCH_RESULT_LIMIT) {
     results.push(...await googleNewsSearch(env, query, log).catch((error) => {
@@ -187,22 +215,35 @@ async function googleSearch(env, query) {
   return results;
 }
 
+async function googleNewsTopStories(env) {
+  const url = new URL("https://news.google.com/rss");
+  url.searchParams.set("hl", "en-US");
+  url.searchParams.set("gl", "US");
+  url.searchParams.set("ceid", "US:en");
+  return googleNewsRss(env, url.toString());
+}
+
 async function googleNewsSearch(env, query) {
   const url = new URL("https://news.google.com/rss/search");
   url.searchParams.set("q", query);
   url.searchParams.set("hl", "en-US");
   url.searchParams.set("gl", "US");
   url.searchParams.set("ceid", "US:en");
+  return googleNewsRss(env, url.toString());
+}
 
-  const text = await fetchText(env, url.toString());
+async function googleNewsRss(env, url) {
+  const text = await fetchText(env, url);
   const items = [...text.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, SEARCH_RESULT_LIMIT);
 
   return items.map((match) => {
     const item = match[1] || "";
+    const published = decodeXml(extractTag(item, "pubDate"));
+    const description = decodeXml(extractTag(item, "description")).replace(/<[^>]+>/g, " ");
     return {
       title: decodeXml(extractTag(item, "title")),
       url: decodeXml(extractTag(item, "link")),
-      snippet: decodeXml(extractTag(item, "description")).replace(/<[^>]+>/g, " "),
+      snippet: clean([published ? `Published: ${published}.` : "", description].join(" ")),
     };
   }).filter((result) => result.title && result.url);
 }
@@ -301,12 +342,19 @@ function normalizeSearchQuery(query) {
   const cleaned = clean(query)
     .replace(/lastest/gi, "latest")
     .replace(URL_PATTERN, "")
-    .replace(/\b(web\s*search|websearch|search web|read this|summarize it|summarize|find)\b/gi, "")
+    .replace(/\b(web\s*search|websearch|search web|read this|summari[sz]e it|summari[sz]e|find)\b/gi, "")
+    .replace(/[\s:;,.!?-]+$/g, "")
+    .replace(/^[\s:;,.!?-]+/g, "")
     .replace(/\s+/g, " ")
     .trim();
 
-  if (/^(latest|today|current)?\s*news\.?$/i.test(cleaned) || cleaned.length === 0) return "top stories today";
+  if (isGeneralNewsQuery(cleaned) || cleaned.length === 0) return "top stories today";
   return cleaned;
+}
+
+function isGeneralNewsQuery(query) {
+  const normalized = clean(query).replace(/lastest/gi, "latest").toLowerCase();
+  return /^(top stories today|latest news|today news|current news|news today|news|latest|today)$/.test(normalized);
 }
 
 function extractUrls(text) {
