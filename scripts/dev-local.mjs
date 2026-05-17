@@ -28,6 +28,11 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (url.pathname === "/api/title" && req.method === "POST") {
+      await handleTitle(req, res, env);
+      return;
+    }
+
     if (url.pathname === "/api/chat" && req.method === "POST") {
       await handleChat(req, res, env);
       return;
@@ -97,6 +102,83 @@ async function handleModels(res, env) {
 
   logEvent("models.loaded", { count: models.length });
   sendJson(res, 200, { models, defaultModel });
+}
+
+async function handleTitle(req, res, env) {
+  const startedAt = Date.now();
+  const body = await readJsonBody(req);
+  const baseUrl = getBaseUrl(env);
+  const apiKey = getApiKey(env);
+  const model = sanitizeModel(body.model) || getModel(env);
+  const chatUrl = getChatCompletionsUrl(baseUrl);
+  const userMessage = String(body.userMessage || "").trim().slice(0, 1200);
+  const assistantMessage = String(body.assistantMessage || "").trim().slice(0, 1200);
+
+  if (!apiKey) {
+    sendJson(res, 500, { error: "Missing AI_API_KEY in .dev.vars" });
+    return;
+  }
+
+  if (!userMessage || !assistantMessage) {
+    sendJson(res, 400, { error: "userMessage and assistantMessage are required" });
+    return;
+  }
+
+  logEvent("title.request", {
+    model,
+    userPreview: previewText(userMessage),
+    assistantPreview: previewText(assistantMessage),
+  });
+
+  const response = await fetch(chatUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      Accept: "text/event-stream, application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: "Create a short chat title. Return only the title, no quotes, no punctuation at the end. Maximum 6 words.",
+        },
+        {
+          role: "user",
+          content: `User: ${userMessage}\nAssistant: ${assistantMessage}`,
+        },
+      ],
+      temperature: 0.2,
+      top_p: 1,
+      max_tokens: 32,
+      stream: true,
+    }),
+  });
+
+  const text = await response.text();
+
+  logEvent("title.provider_response", {
+    model,
+    status: response.status,
+    durationMs: Date.now() - startedAt,
+    bodyPreview: response.ok ? undefined : previewText(text),
+  });
+
+  if (!response.ok) {
+    const data = parseJson(text);
+    sendJson(res, response.status, {
+      error: data?.error?.message || text.slice(0, 500) || `AI provider returned HTTP ${response.status}`,
+    });
+    return;
+  }
+
+  const data = parseProviderResponse(text, model, chatUrl);
+  const rawTitle = data?.choices?.[0]?.message?.content || "";
+  const title = cleanTitle(rawTitle) || fallbackTitle(userMessage);
+
+  logEvent("title.answer", { model, title });
+  sendJson(res, 200, { title });
 }
 
 async function handleChat(req, res, env) {
@@ -392,4 +474,19 @@ function logEvent(event, details = {}) {
 
 function previewText(value) {
   return String(value || "").replace(/\s+/g, " ").slice(0, 240);
+}
+
+function cleanTitle(value) {
+  return String(value || "")
+    .replace(/^Title:\s*/i, "")
+    .replace(/["'`]/g, "")
+    .replace(/[.!?]+$/g, "")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 8)
+    .join(" ");
+}
+
+function fallbackTitle(value) {
+  return String(value || "").trim().split(/\s+/).slice(0, 6).join(" ") || "New chat";
 }
