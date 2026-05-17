@@ -7,9 +7,12 @@ import { parseChatRequest } from "./validation";
 export async function handleChat(request: Request, env: Env): Promise<Response> {
   try {
     const body = await request.json();
-    const { messages } = parseChatRequest(body);
+    const { messages, model } = parseChatRequest(body);
     const config = getConfig(env);
-    const completion = await createChatCompletion(config, messages);
+    const completion = await createChatCompletion(
+      model ? { ...config, model } : config,
+      messages,
+    );
     const answer = completion.choices?.[0]?.message?.content || "";
 
     return jsonResponse({
