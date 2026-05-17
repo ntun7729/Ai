@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <title>AI Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260517-4" />
-    <link rel="stylesheet" href="/controls.css?v=20260517-4" />
-    <link rel="stylesheet" href="/mobile.css?v=20260517-4" />
+    <link rel="stylesheet" href="/styles.css?v=20260517-5" />
+    <link rel="stylesheet" href="/controls.css?v=20260517-5" />
+    <link rel="stylesheet" href="/mobile.css?v=20260517-5" />
   </head>
   <body>
     <div class="app-layout">
@@ -89,6 +89,14 @@
 
         <section class="composer-shell" aria-label="Message composer">
           <form id="chat-form" class="chat-form">
+            <div class="attachment-wrap">
+              <button id="attachment-button" class="attachment-button" type="button" aria-label="Attach image or file" aria-expanded="false">+</button>
+              <div id="attachment-menu" class="attachment-menu" hidden>
+                <button type="button" data-attachment-action="image">▧ Add photos</button>
+                <button type="button" data-attachment-action="camera">▣ Take photo</button>
+                <button type="button" data-attachment-action="file">⌕ Add files</button>
+              </div>
+            </div>
             <label class="sr-only" for="prompt">Message</label>
             <textarea
               id="prompt"
@@ -99,12 +107,16 @@
               required
             ></textarea>
             <button id="send-button" class="send-button" type="submit" aria-label="Send message">↑</button>
+            <input id="image-input" class="sr-only" type="file" accept="image/*" />
+            <input id="camera-input" class="sr-only" type="file" accept="image/*" capture="environment" />
+            <input id="file-input" class="sr-only" type="file" />
           </form>
+          <div id="attachment-preview" class="attachment-preview" hidden></div>
           <p class="composer-note">AI can make mistakes. Check important information.</p>
         </section>
       </main>
     </div>
 
-    <script type="module" src="/js/main.js?v=20260517-4"></script>
+    <script type="module" src="/js/main.js?v=20260517-5"></script>
   </body>
 </html>
