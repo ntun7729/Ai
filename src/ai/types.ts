@@ -1,8 +1,22 @@
 export type ChatRole = "system" | "user" | "assistant";
 
+export interface TextContentPart {
+  type: "text";
+  text: string;
+}
+
+export interface ImageUrlContentPart {
+  type: "image_url";
+  image_url: {
+    url: string;
+  };
+}
+
+export type ChatContent = string | Array<TextContentPart | ImageUrlContentPart>;
+
 export interface ChatMessage {
   role: ChatRole;
-  content: string;
+  content: ChatContent;
 }
 
 export interface ChatRequestBody {
@@ -13,6 +27,7 @@ export interface ChatRequestBody {
 
 export interface ChatCompletionDelta {
   content?: string;
+  reasoning?: string;
   reasoning_content?: string;
 }
 
