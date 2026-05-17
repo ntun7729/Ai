@@ -1,6 +1,6 @@
 import { getConfig } from "../config/env";
 import { errorResponse, jsonResponse } from "../http/json";
-import { buildSearchContext } from "../search/web-search";
+import { buildSearchContext, messageHasUrl } from "../search/web-search";
 import type { Env } from "../types/env";
 import { createChatCompletion } from "./client";
 import type { ChatMessage } from "./types";
@@ -10,11 +10,18 @@ export async function handleChat(request: Request, env: Env): Promise<Response> 
   try {
     const body = await request.json();
     const parsed = parseChatRequest(body);
-    const config = getConfig(env);
+    const config = getConfig(env, parsed.runtime);
     const selectedModel = parsed.model || config.model;
-    const preparedMessages = parsed.webSearch
+    const shouldUseWeb = parsed.webSearch || messageHasUrl(parsed.messages);
+    const preparedMessages = shouldUseWeb
       ? await addWebResults(env, parsed.messages)
       : parsed.messages;
+
+    log(config.logsEnabled, "chat.request", {
+      model: selectedModel,
+      webSearch: shouldUseWeb,
+      messageCount: preparedMessages.length,
+    });
 
     const completion = await createChatCompletion(
       { ...config, model: selectedModel },
@@ -30,7 +37,7 @@ export async function handleChat(request: Request, env: Env): Promise<Response> 
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown chat error";
-    const status = message.includes("Missing AI_API_KEY") ? 500 : 400;
+    const status = message.includes("Missing") ? 500 : 400;
 
     return errorResponse(message, status);
   }
@@ -66,4 +73,9 @@ function getTextContent(value: ChatMessage["content"] | undefined): string {
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join(" ");
+}
+
+function log(enabled: boolean, event: string, details: Record<string, unknown>): void {
+  if (!enabled) return;
+  console.log(JSON.stringify({ time: new Date().toISOString(), event, ...details }));
 }
