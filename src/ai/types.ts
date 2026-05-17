@@ -12,6 +12,13 @@ export interface ImageUrlContentPart {
   };
 }
 
+export interface RuntimeSettings {
+  providerBaseUrl?: string;
+  logsEnabled?: boolean;
+  webFetchEnabled?: boolean;
+  googleSearchEnabled?: boolean;
+}
+
 export type ChatContentPart = TextContentPart | ImageUrlContentPart;
 export type ChatContent = string | ChatContentPart[];
 
@@ -25,6 +32,7 @@ export interface ChatRequestBody {
   model?: string;
   thinking?: boolean;
   webSearch?: boolean;
+  runtime?: RuntimeSettings;
 }
 
 export interface ChatCompletionDelta {
