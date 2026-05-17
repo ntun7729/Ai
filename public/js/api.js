@@ -33,3 +33,21 @@ export async function fetchModels() {
     defaultModel: data.defaultModel || "",
   };
 }
+
+export async function generateTitle({ model, userMessage, assistantMessage }) {
+  const response = await fetch("/api/title", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ model, userMessage, assistantMessage }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Failed to generate title");
+  }
+
+  return data.title || "New chat";
+}
