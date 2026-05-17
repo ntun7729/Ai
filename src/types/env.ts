@@ -7,4 +7,9 @@ export interface Env {
   SEARCH_API_KEY?: string;
   BRAVE_SEARCH_API_KEY?: string;
   SEARCH_PROXY_URL?: string;
+  PROXY_HOSTS?: string;
+  PROXY_IPS?: string;
+  PROXYIP?: string;
+  PROXY_FAIL_COOLDOWN_MS?: string;
+  ENABLE_LOGS?: string;
 }
