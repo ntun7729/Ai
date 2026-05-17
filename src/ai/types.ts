@@ -33,6 +33,7 @@ export interface ChatRequestBody {
   model?: string;
   thinking?: boolean;
   webSearch?: boolean;
+  memory?: boolean;
   runtime?: RuntimeSettings;
 }
 
