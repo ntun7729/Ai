@@ -1,3 +1,15 @@
+import { getAdminSettings } from "./admin.js";
+
+function getRuntimeOptions() {
+  const value = getAdminSettings();
+  return {
+    providerBaseUrl: value.apiBaseUrl || undefined,
+    logsEnabled: value.logsEnabled,
+    webFetchEnabled: value.webFetchEnabled,
+    googleSearchEnabled: value.googleSearchEnabled,
+  };
+}
+
 export async function sendChat(messages, model, options = {}) {
   const response = await fetch("/api/chat", {
     method: "POST",
@@ -9,6 +21,7 @@ export async function sendChat(messages, model, options = {}) {
       model,
       thinking: Boolean(options.thinking),
       webSearch: Boolean(options.webSearch),
+      runtime: getRuntimeOptions(),
     }),
   });
 
