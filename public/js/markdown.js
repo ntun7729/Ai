@@ -1,7 +1,7 @@
 export function renderMarkdown(container, text) {
   container.textContent = "";
 
-  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  const lines = String(text || "").replace(/\r\n/g, "\n").replace(/<br\s*\/?\s*>/gi, "\n").split("\n");
   let index = 0;
 
   while (index < lines.length) {
@@ -96,7 +96,7 @@ function renderTableAsCards(lines, index) {
       row.className = "markdown-card-row";
 
       const label = document.createElement("strong");
-      label.textContent = headers[cellIndex] || `Item ${cellIndex + 1}`;
+      label.textContent = `${headers[cellIndex] || `Item ${cellIndex + 1}`}:`;
 
       const value = document.createElement("span");
       appendInline(value, cell);
@@ -122,13 +122,14 @@ function splitTableRow(line) {
 }
 
 function appendInline(parent, text) {
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\((https?:\/\/[^\s)]+)\))/g;
+  const normalized = String(text || "").replace(/<br\s*\/?\s*>/gi, " ");
+  const pattern = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\((https?:\/\/[^\s)]+)\))/g;
   let lastIndex = 0;
   let match;
 
-  while ((match = pattern.exec(text)) !== null) {
+  while ((match = pattern.exec(normalized)) !== null) {
     if (match.index > lastIndex) {
-      parent.append(document.createTextNode(text.slice(lastIndex, match.index)));
+      parent.append(document.createTextNode(normalized.slice(lastIndex, match.index)));
     }
 
     const token = match[0];
@@ -136,6 +137,10 @@ function appendInline(parent, text) {
       const strong = document.createElement("strong");
       strong.textContent = token.slice(2, -2);
       parent.append(strong);
+    } else if (token.startsWith("*")) {
+      const em = document.createElement("em");
+      em.textContent = token.slice(1, -1);
+      parent.append(em);
     } else if (token.startsWith("`")) {
       const code = document.createElement("code");
       code.textContent = token.slice(1, -1);
@@ -157,7 +162,7 @@ function appendInline(parent, text) {
     lastIndex = match.index + token.length;
   }
 
-  if (lastIndex < text.length) {
-    parent.append(document.createTextNode(text.slice(lastIndex)));
+  if (lastIndex < normalized.length) {
+    parent.append(document.createTextNode(normalized.slice(lastIndex)));
   }
 }
