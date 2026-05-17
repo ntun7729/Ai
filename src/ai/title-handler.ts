@@ -37,7 +37,7 @@ export async function handleTitle(request: Request, env: Env): Promise<Response>
       { thinking: false, maxTokens: 24, temperature: 0.1, stream: false },
     );
 
-    const rawTitle = completion.choices?.[0]?.message?.content || "";
+    const rawTitle = getTextContent(completion.choices?.[0]?.message?.content);
     const title = cleanTitle(rawTitle) || fallbackTitle(userMessage);
 
     return jsonResponse({ title });
@@ -66,6 +66,16 @@ function parseText(value: unknown, field: string): string {
   }
 
   return value.trim().slice(0, 1200);
+}
+
+function getTextContent(value: ChatMessage["content"] | undefined): string {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+
+  return value
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join(" ");
 }
 
 function cleanTitle(value: string): string {
