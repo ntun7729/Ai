@@ -1,4 +1,3 @@
-import './markdown-patch.js';
 import { setupAdminPanel } from './admin.js';
 import { setupChat } from './chat.js';
 import { getChatElements } from './dom.js';
