@@ -36,6 +36,7 @@ const server = createServer(async (req, res) => {
     await serveStatic(url.pathname, res);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown local server error";
+    logEvent("error", { message });
     sendJson(res, 500, { error: message });
   }
 });
@@ -46,21 +47,26 @@ server.listen(port, host, () => {
   console.log("Use this only when wrangler dev cannot start in your environment.");
   console.log(`AI_BASE_URL: ${health.aiBaseUrl}`);
   console.log(`AI_CHAT_URL: ${health.aiChatUrl}`);
+  console.log(`AI_MODELS_URL: ${health.aiModelsUrl}`);
   console.log(`AI_MODEL: ${health.aiModel}`);
   console.log(`AI_API_KEY loaded: ${health.hasApiKey ? "yes" : "no"}`);
 });
 
 async function handleModels(res, env) {
+  const startedAt = Date.now();
   const baseUrl = getBaseUrl(env);
   const apiKey = getApiKey(env);
   const defaultModel = getModel(env);
+  const modelsUrl = getModelsUrl(baseUrl);
 
   if (!apiKey) {
     sendJson(res, 500, { error: "Missing AI_API_KEY in .dev.vars" });
     return;
   }
 
-  const response = await fetch(getModelsUrl(baseUrl), {
+  logEvent("models.request", { modelsUrl, defaultModel });
+
+  const response = await fetch(modelsUrl, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -70,6 +76,12 @@ async function handleModels(res, env) {
 
   const text = await response.text();
   const data = parseJson(text);
+
+  logEvent("models.response", {
+    status: response.status,
+    durationMs: Date.now() - startedAt,
+    bodyPreview: response.ok ? undefined : previewText(text),
+  });
 
   if (!response.ok) {
     sendJson(res, response.status, { error: data?.error?.message || text.slice(0, 500) || "Failed to load models" });
@@ -83,10 +95,12 @@ async function handleModels(res, env) {
         .sort((a, b) => a.id.localeCompare(b.id))
     : [];
 
+  logEvent("models.loaded", { count: models.length });
   sendJson(res, 200, { models, defaultModel });
 }
 
 async function handleChat(req, res, env) {
+  const startedAt = Date.now();
   const body = await readJsonBody(req);
 
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
@@ -98,11 +112,22 @@ async function handleChat(req, res, env) {
   const apiKey = getApiKey(env);
   const model = sanitizeModel(body.model) || getModel(env);
   const chatUrl = getChatCompletionsUrl(baseUrl);
+  const messageCount = body.messages.length;
+  const lastRole = body.messages.at(-1)?.role;
+  const lastText = String(body.messages.at(-1)?.content || "");
 
   if (!apiKey) {
     sendJson(res, 500, { error: "Missing AI_API_KEY in .dev.vars" });
     return;
   }
+
+  logEvent("chat.request", {
+    model,
+    messageCount,
+    lastRole,
+    lastTextPreview: previewText(lastText),
+    chatUrl,
+  });
 
   const response = await fetch(chatUrl, {
     method: "POST",
@@ -123,6 +148,13 @@ async function handleChat(req, res, env) {
 
   const text = await response.text();
 
+  logEvent("chat.provider_response", {
+    model,
+    status: response.status,
+    durationMs: Date.now() - startedAt,
+    bodyPreview: response.ok ? undefined : previewText(text),
+  });
+
   if (!response.ok) {
     const data = parseJson(text);
     sendJson(res, response.status, {
@@ -131,15 +163,22 @@ async function handleChat(req, res, env) {
         baseUrl,
         chatUrl,
         model,
+        messageCount,
       },
     });
     return;
   }
 
   const data = parseProviderResponse(text, model, chatUrl);
+  const answer = data?.choices?.[0]?.message?.content || "";
+
+  logEvent("chat.answer", {
+    model: data?.model || model,
+    answerPreview: previewText(answer),
+  });
 
   sendJson(res, 200, {
-    answer: data?.choices?.[0]?.message?.content || "",
+    answer,
     model: data?.model || model,
     usage: data?.usage,
   });
@@ -328,4 +367,16 @@ function contentType(path) {
     default:
       return "application/octet-stream";
   }
+}
+
+function logEvent(event, details = {}) {
+  console.log(JSON.stringify({
+    time: new Date().toISOString(),
+    event,
+    ...details,
+  }));
+}
+
+function previewText(value) {
+  return String(value || "").replace(/\s+/g, " ").slice(0, 240);
 }
