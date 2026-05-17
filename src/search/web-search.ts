@@ -7,40 +7,46 @@ export interface SearchResult {
   snippet: string;
 }
 
-const SEARCH_RESULT_LIMIT = 5;
+const SEARCH_RESULT_LIMIT = 8;
 const REQUEST_TIMEOUT_MS = 8000;
 
 export async function buildSearchContext(env: Env, messages: ChatMessage[]): Promise<string> {
   const query = getLatestUserText(messages);
   if (!query) return "";
 
-  const results = await searchWeb(env, query);
+  const results = await searchWeb(env, normalizeSearchQuery(query));
   if (results.length === 0) {
     return [
-      "Web search was requested, but the Worker could not reach direct search sources or a configured fallback.",
-      "Do not invent search results. Tell the user web search failed and suggest trying again.",
+      "Web search was requested, but the Worker could not fetch direct web results or fallback results.",
+      "Do not invent current facts or sources. Tell the user web search failed and suggest trying again.",
     ].join(" ");
   }
 
   return [
-    "Fresh web search results fetched directly by the Cloudflare Worker. Use them only when relevant. Cite source URLs in the answer.",
+    "Fresh web results were fetched directly by the app before this answer.",
+    "Use these results as evidence, but synthesize them into a useful answer instead of dumping raw links.",
+    "For news, give a short summary, key details, and why each item matters.",
+    "Prefer reliable/primary outlets when the results overlap. Mention uncertainty when a result has weak detail.",
+    "Do not output long raw URLs. Cite naturally using source names or short markdown links.",
+    "Results:",
     ...results.map((result, index) => [
-      `[${index + 1}] ${result.title}`,
-      result.url,
-      result.snippet,
+      `[${index + 1}] Title: ${result.title}`,
+      `URL: ${result.url}`,
+      result.snippet ? `Snippet: ${result.snippet}` : "",
     ].filter(Boolean).join("\n")),
   ].join("\n\n");
 }
 
 export async function searchWeb(env: Env, query: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
+  const normalizedQuery = normalizeSearchQuery(query);
 
-  results.push(...await googleNewsSearch(env, query).catch(() => []));
+  results.push(...await googleNewsSearch(env, normalizedQuery).catch(() => []));
   if (results.length < SEARCH_RESULT_LIMIT) {
-    results.push(...await duckDuckGoLiteSearch(env, query).catch(() => []));
+    results.push(...await duckDuckGoLiteSearch(env, normalizedQuery).catch(() => []));
   }
   if (results.length < SEARCH_RESULT_LIMIT) {
-    results.push(...await fallbackResultSearch(env, query).catch(() => []));
+    results.push(...await fallbackResultSearch(env, normalizedQuery).catch(() => []));
   }
 
   return uniqueResults(results).slice(0, SEARCH_RESULT_LIMIT);
@@ -60,7 +66,7 @@ async function googleNewsSearch(env: Env, query: string): Promise<SearchResult[]
     const item = match[1] || "";
     return {
       title: decodeXml(extractTag(item, "title")),
-      url: normalizeGoogleNewsUrl(decodeXml(extractTag(item, "link"))),
+      url: decodeXml(extractTag(item, "link")),
       snippet: decodeXml(extractTag(item, "description")).replace(/<[^>]+>/g, " "),
     };
   }).filter((result) => result.title && result.url);
@@ -161,12 +167,22 @@ function getLatestUserText(messages: ChatMessage[]): string {
   return "";
 }
 
-function extractTag(xml: string, tag: string): string {
-  return xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`))?.[1] || "";
+function normalizeSearchQuery(query: string): string {
+  const cleaned = clean(query)
+    .replace(/lastest/gi, "latest")
+    .replace(/\b(web\s*search|websearch|search web|find)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/^(latest|today|current)?\s*news\.?$/i.test(cleaned) || cleaned.length === 0) {
+    return "top stories today";
+  }
+
+  return cleaned;
 }
 
-function normalizeGoogleNewsUrl(url: string): string {
-  return clean(url);
+function extractTag(xml: string, tag: string): string {
+  return xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`))?.[1] || "";
 }
 
 function normalizeDuckDuckGoUrl(url: string): string {
