@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -23,6 +24,9 @@ const env = await loadDevVars(join(root, ".dev.vars"));
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || env.PORT || 8787);
 const URL_PATTERN = /https?:\/\/[^\s<>)"']+/i;
+const ADMIN_COOKIE_NAME = "ai_admin_session";
+const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+const localAdminSessions = new Set();
 
 await initLocalMemory();
 
@@ -32,6 +36,7 @@ createServer(async (req, res) => {
 
     if (req.method === "OPTIONS") return send(res, 204, "");
     if (url.pathname === "/api/health" && req.method === "GET") return sendJson(res, 200, await health());
+    if (url.pathname.startsWith("/api/admin/")) { await handleAdmin(req, res, url); return; }
     if (url.pathname === "/api/models" && req.method === "GET") { await handleModels(res); return; }
     if (url.pathname === "/api/chat" && req.method === "POST") { await handleChat(req, res); return; }
     if (url.pathname === "/api/title" && req.method === "POST") { await handleTitle(req, res); return; }
@@ -52,8 +57,43 @@ createServer(async (req, res) => {
   console.log(`AI_MODELS_URL: ${info.aiModelsUrl}`);
   console.log(`AI_MODEL: ${info.aiModel}`);
   console.log(`AI_API_KEY loaded: ${info.hasApiKey ? "yes" : "no"}`);
+  console.log(`Admin password configured: ${info.hasAdminPassword ? "yes" : "no"}`);
   console.log(`Memory storage: ${info.memoryStorage}`);
 });
+
+async function handleAdmin(req, res, url) {
+  if (url.pathname === "/api/admin/status" && req.method === "GET") {
+    return sendJson(res, 200, {
+      configured: Boolean(adminPassword()),
+      authenticated: isLocalAdminAuthenticated(req),
+    });
+  }
+
+  if (url.pathname === "/api/admin/login" && req.method === "POST") {
+    const expected = adminPassword();
+    if (!expected) return sendJson(res, 500, { error: "ADMIN_PASSWORD is not configured" });
+
+    const body = await readJson(req);
+    const password = String(body.password || "");
+    if (password !== expected) return sendJson(res, 401, { error: "Invalid admin password" });
+
+    const token = randomUUID();
+    localAdminSessions.add(token);
+    return sendJson(res, 200, { ok: true, authenticated: true }, {
+      "Set-Cookie": `${ADMIN_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${ADMIN_SESSION_TTL_SECONDS}`,
+    });
+  }
+
+  if (url.pathname === "/api/admin/logout" && req.method === "POST") {
+    const token = readCookie(req, ADMIN_COOKIE_NAME);
+    if (token) localAdminSessions.delete(token);
+    return sendJson(res, 200, { ok: true, authenticated: false }, {
+      "Set-Cookie": `${ADMIN_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`,
+    });
+  }
+
+  return sendJson(res, 404, { error: "Admin route not found" });
+}
 
 async function handleModels(res) {
   const startedAt = Date.now();
@@ -273,16 +313,19 @@ async function serveStatic(pathname, res) {
 }
 
 async function health() {
-  return { ok: true, mode: "node-local", aiBaseUrl: baseUrl(), aiChatUrl: chatEndpoint(), aiModelsUrl: modelsEndpoint(), aiModel: modelFromEnv(), hasApiKey: Boolean(apiKey()), memoryStorage: await localMemoryStorageInfo() };
+  return { ok: true, mode: "node-local", aiBaseUrl: baseUrl(), aiChatUrl: chatEndpoint(), aiModelsUrl: modelsEndpoint(), aiModel: modelFromEnv(), hasApiKey: Boolean(apiKey()), hasAdminPassword: Boolean(adminPassword()), memoryStorage: await localMemoryStorageInfo() };
 }
 function baseUrl() { return String(env.AI_BASE_URL || "https://api.openai.com").replace(/\/+$/, ""); }
 function apiKey() { return String(env.AI_API_KEY || env.NVIDIA_API_KEY || "").trim(); }
+function adminPassword() { return String(env.ADMIN_PASSWORD || "").trim(); }
 function modelFromEnv() { return String(env.AI_MODEL || "gpt-4.1-mini").trim(); }
 function chatEndpoint() { return baseUrl().endsWith("/v1") ? `${baseUrl()}/chat/completions` : `${baseUrl()}/v1/chat/completions`; }
 function modelsEndpoint() { return baseUrl().endsWith("/v1") ? `${baseUrl()}/models` : `${baseUrl()}/v1/models`; }
 function cleanModel(value) { return typeof value === "string" && /^[A-Za-z0-9._:/-]{1,160}$/.test(value.trim()) ? value.trim() : ""; }
 function cleanConversationId(value) { return typeof value === "string" && /^[A-Za-z0-9._:-]{1,120}$/.test(value.trim()) ? value.trim() : ""; }
 function conversationIdFromMessages(messages) { return `local-${String(latestUserText(messages) || Date.now()).slice(0, 64).replace(/[^A-Za-z0-9]+/g, "-")}`; }
+function isLocalAdminAuthenticated(req) { const token = readCookie(req, ADMIN_COOKIE_NAME); return Boolean(token && localAdminSessions.has(token)); }
+function readCookie(req, name) { const cookie = String(req.headers.cookie || ""); for (const part of cookie.split(";")) { const [key, ...rest] = part.trim().split("="); if (key === name) return rest.join("="); } return ""; }
 function parseJson(text) { try { return JSON.parse(text); } catch { return null; } }
 function preview(value) { return String(value || "").replace(/\s+/g, " ").slice(0, 240); }
 function previewContent(value) { return Array.isArray(value) ? value.map((part) => part?.type || "part").join(",") : preview(value); }
@@ -306,7 +349,7 @@ async function loadDevVars(path) {
   }
   return values;
 }
-function sendJson(res, status, data) { return send(res, status, JSON.stringify(data), { "Content-Type": "application/json; charset=utf-8" }); }
+function sendJson(res, status, data, headers = {}) { return send(res, status, JSON.stringify(data), { "Content-Type": "application/json; charset=utf-8", ...headers }); }
 function send(res, status, body, headers = {}) { res.writeHead(status, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", ...headers }); res.end(body); }
 function contentType(path) { return { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8" }[extname(path)] || "application/octet-stream"; }
 function log(event, details = {}) { console.log(JSON.stringify({ time: new Date().toISOString(), event, ...details })); }
