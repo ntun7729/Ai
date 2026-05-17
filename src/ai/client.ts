@@ -9,6 +9,7 @@ export interface ChatOptions {
   thinking: boolean;
   maxTokens?: number;
   temperature?: number;
+  stream?: boolean;
 }
 
 interface StreamDelta {
@@ -35,7 +36,7 @@ export async function createChatCompletion(
     temperature: options.temperature ?? 1,
     top_p: 1,
     max_tokens: options.maxTokens ?? 16384,
-    stream: true,
+    stream: options.stream ?? true,
   };
 
   if (options.thinking) {
