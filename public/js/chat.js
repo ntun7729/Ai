@@ -15,6 +15,14 @@ import {
 
 const STOP_WORDS = new Set(["a", "an", "the", "is", "are", "to", "of", "and", "or", "in", "on", "for", "with", "what", "where", "when", "why", "how"]);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const SUGGESTED_MODELS = [
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "moonshotai/kimi-k2.6",
+  "mistralai/mistral-small-4-119b-2603",
+  "z-ai/glm-5.1",
+  "qwen/qwen3-coder-480b-a35b-instruct",
+];
 
 function createSystemMessage(model) {
   return {
@@ -38,6 +46,7 @@ let sessions = [];
 let activeSessionId = "";
 let pendingAttachment = null;
 let webSearchToggle = null;
+let modelPickerUi = null;
 
 export function setupChat(elements) {
   const { form, prompt, promptChips, modelSelect, modelBadge, mobileModelLabel, newChatButton } = elements;
@@ -201,11 +210,169 @@ function setupPromptChips(promptChips, prompt) {
 }
 
 function setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements) {
+  modelPickerUi = createModelPickerUi(modelSelect);
   setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
+  modelPickerUi.sync();
+
   modelSelect.addEventListener("change", () => {
     setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
+    modelPickerUi.sync();
     startNewSession(elements, modelSelect.value, true);
   });
+}
+
+function createModelPickerUi(modelSelect) {
+  const shell = modelSelect.closest(".model-select-shell");
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "model-picker-trigger";
+  trigger.setAttribute("aria-haspopup", "dialog");
+  trigger.innerHTML = `
+    <span class="model-trigger-copy">
+      <strong></strong>
+      <small></small>
+    </span>
+    <span class="model-trigger-chevron" aria-hidden="true">⌄</span>
+  `;
+  shell.append(trigger);
+
+  const overlay = document.createElement("div");
+  overlay.className = "model-sheet-backdrop";
+  overlay.hidden = true;
+
+  const sheet = document.createElement("section");
+  sheet.className = "model-sheet";
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  sheet.setAttribute("aria-label", "Choose model");
+  sheet.innerHTML = `
+    <div class="model-sheet-grabber" aria-hidden="true"></div>
+    <div class="model-sheet-header">
+      <button class="model-sheet-close" type="button" aria-label="Close model picker">×</button>
+      <div>
+        <h2>Intelligence</h2>
+        <p>Choose the model for the next chat.</p>
+      </div>
+    </div>
+    <div class="model-sheet-current">
+      <span>Model</span>
+      <strong></strong>
+    </div>
+    <label class="model-search-label">
+      <span>Search models</span>
+      <input class="model-search-input" type="search" placeholder="Search provider models..." autocomplete="off" />
+    </label>
+    <div class="model-option-list"></div>
+  `;
+  overlay.append(sheet);
+  document.body.append(overlay);
+
+  const searchInput = sheet.querySelector(".model-search-input");
+  const list = sheet.querySelector(".model-option-list");
+  const currentValue = sheet.querySelector(".model-sheet-current strong");
+  const closeButton = sheet.querySelector(".model-sheet-close");
+  const triggerName = trigger.querySelector("strong");
+  const triggerMeta = trigger.querySelector("small");
+
+  const open = () => {
+    render();
+    overlay.hidden = false;
+    document.body.classList.add("model-sheet-open");
+    trigger.setAttribute("aria-expanded", "true");
+    window.setTimeout(() => searchInput.focus(), 50);
+  };
+
+  const close = () => {
+    overlay.hidden = true;
+    document.body.classList.remove("model-sheet-open");
+    trigger.setAttribute("aria-expanded", "false");
+    searchInput.value = "";
+  };
+
+  const choose = (model) => {
+    if (modelSelect.value !== model) {
+      modelSelect.value = model;
+      modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    } else {
+      sync();
+    }
+    close();
+  };
+
+  const renderSection = (title, models) => {
+    const unique = uniqueStrings(models).filter(Boolean);
+    if (unique.length === 0) return;
+
+    const section = document.createElement("div");
+    section.className = "model-option-section";
+    const heading = document.createElement("p");
+    heading.className = "model-option-heading";
+    heading.textContent = title;
+    section.append(heading);
+
+    for (const model of unique) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "model-option";
+      button.setAttribute("aria-pressed", model === modelSelect.value ? "true" : "false");
+      button.innerHTML = `
+        <span class="model-option-text">
+          <strong></strong>
+          <small></small>
+        </span>
+        <span class="model-option-check" aria-hidden="true">✓</span>
+      `;
+      button.querySelector("strong").textContent = prettyModelName(model);
+      button.querySelector("small").textContent = describeModel(model);
+      button.addEventListener("click", () => choose(model));
+      section.append(button);
+    }
+
+    list.append(section);
+  };
+
+  const render = () => {
+    const all = getOptionValues(modelSelect);
+    const query = searchInput.value.trim().toLowerCase();
+    list.textContent = "";
+
+    if (query) {
+      renderSection("Search results", all.filter((model) => model.toLowerCase().includes(query)));
+      if (!list.children.length) {
+        const empty = document.createElement("p");
+        empty.className = "model-option-empty";
+        empty.textContent = "No matching models.";
+        list.append(empty);
+      }
+      return;
+    }
+
+    const suggested = SUGGESTED_MODELS.filter((model) => all.includes(model));
+    const allWithoutSuggested = all.filter((model) => !suggested.includes(model));
+    renderSection("Suggested", suggested);
+    renderSection("All provider models", allWithoutSuggested);
+  };
+
+  const sync = () => {
+    const model = modelSelect.value;
+    const meta = describeModel(model);
+    triggerName.textContent = prettyModelName(model);
+    triggerMeta.textContent = meta;
+    currentValue.textContent = prettyModelName(model);
+    render();
+  };
+
+  trigger.addEventListener("click", open);
+  closeButton.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  searchInput.addEventListener("input", render);
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !overlay.hidden) close();
+  });
+
+  return { sync, render };
 }
 
 async function loadProviderModels(modelSelect, modelBadge, mobileModelLabel, elements) {
@@ -213,16 +380,18 @@ async function loadProviderModels(modelSelect, modelBadge, mobileModelLabel, ele
   try {
     const { models, defaultModel } = await fetchModels();
     if (models.length === 0) return;
-    const preferredModel = models.some((model) => model.id === existingModel) ? existingModel : defaultModel || models[0].id;
+    const uniqueModels = uniqueStrings(models.map((model) => model.id));
+    const preferredModel = uniqueModels.includes(existingModel) ? existingModel : defaultModel || uniqueModels[0];
     modelSelect.textContent = "";
-    for (const model of models) {
+    for (const model of uniqueModels) {
       const option = document.createElement("option");
-      option.value = model.id;
-      option.textContent = model.id;
+      option.value = model;
+      option.textContent = model;
       modelSelect.append(option);
     }
     modelSelect.value = preferredModel;
     setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
+    modelPickerUi?.sync();
     const session = getActiveSession();
     if (session && !session.hasUserMessage) {
       session.model = preferredModel;
@@ -250,6 +419,7 @@ function startNewSession(elements, model, showNotice) {
   document.body.classList.remove("has-chat");
   elements.prompt.value = "";
   autoResizeTextarea(elements.prompt);
+  modelPickerUi?.sync();
   renderActiveSession(elements);
   elements.prompt.focus();
 }
@@ -260,6 +430,7 @@ function selectSession(elements, sessionId) {
   activeSessionId = sessionId;
   elements.modelSelect.value = session.model;
   setModelLabels(session.model, elements.modelBadge, elements.mobileModelLabel);
+  modelPickerUi?.sync();
   renderActiveSession(elements);
   document.body.classList.toggle("has-chat", session.hasUserMessage);
   document.body.classList.remove("sidebar-open");
@@ -292,4 +463,28 @@ function makeLocalTitle(text) {
   const useful = words.filter((word) => !STOP_WORDS.has(word.toLowerCase()));
   const title = (useful.length ? useful : words).slice(0, 5).join(" ") || "New chat";
   return title.length > 32 ? `${title.slice(0, 32)}...` : title;
+}
+
+function getOptionValues(select) {
+  return uniqueStrings(Array.from(select.options).map((option) => option.value).filter(Boolean));
+}
+
+function uniqueStrings(values) {
+  return Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean)));
+}
+
+function prettyModelName(model) {
+  return model;
+}
+
+function describeModel(model) {
+  const lower = model.toLowerCase();
+  const tags = [];
+  if (lower.includes("vision") || lower.includes("mistral-small-4")) tags.push("Vision");
+  if (lower.includes("coder") || lower.includes("code")) tags.push("Coding");
+  if (lower.includes("thinking") || lower.includes("glm") || lower.includes("kimi") || lower.includes("oss")) tags.push("Thinking-capable");
+  if (lower.includes("embed")) tags.push("Embedding");
+  if (lower.includes("audio")) tags.push("Audio");
+  if (tags.length === 0) tags.push("Chat model");
+  return tags.join(" • ");
 }
