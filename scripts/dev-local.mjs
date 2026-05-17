@@ -13,6 +13,8 @@ import {
   latestUserText,
   listLocalMemories,
   localMemoryStorageInfo,
+  saveLocalMessage,
+  upsertLocalConversation,
 } from "./memory-local.mjs";
 
 const root = process.cwd();
@@ -121,11 +123,16 @@ async function handleChat(req, res) {
   const rawMessages = Array.isArray(body.messages) ? body.messages : [];
   const memoryEnabled = body.memory !== false;
   const wantsSearch = body.webSearch === true || messageWantsSearch(rawMessages.at(-1)?.content);
+  const conversationId = cleanConversationId(body.conversationId) || conversationIdFromMessages(rawMessages);
+  const conversationTitle = String(body.conversationTitle || fallbackTitle(latestUserText(rawMessages))).slice(0, 120);
+  const latestText = latestUserText(rawMessages);
 
   if (!apiKey()) return sendJson(res, 500, { error: "Missing AI_API_KEY in .dev.vars" });
   if (rawMessages.length === 0) return sendJson(res, 400, { error: "Request body must include a non-empty messages array" });
 
-  if (memoryEnabled) await captureLocalMemoryFromText(latestUserText(rawMessages));
+  await upsertLocalConversation({ id: conversationId, title: conversationTitle, model });
+  await saveLocalMessage({ conversationId, title: conversationTitle, model, role: "user", content: rawMessages.at(-1)?.content || latestText });
+  if (memoryEnabled) await captureLocalMemoryFromText(latestText);
   const memoryMessages = await addLocalMemoryContext(rawMessages, memoryEnabled);
   const messages = wantsSearch ? await addSearchContext(env, memoryMessages, log) : memoryMessages;
 
@@ -167,6 +174,7 @@ async function handleChat(req, res) {
     return sendJson(res, 200, { answer: "The provider returned an empty answer. Please try again.", model });
   }
 
+  await saveLocalMessage({ conversationId, title: conversationTitle, model, role: "assistant", content: answer });
   log("chat.answer", { model, answerPreview: preview(answer) });
   return sendJson(res, 200, { answer, model });
 }
@@ -273,6 +281,8 @@ function modelFromEnv() { return String(env.AI_MODEL || "gpt-4.1-mini").trim(); 
 function chatEndpoint() { return baseUrl().endsWith("/v1") ? `${baseUrl()}/chat/completions` : `${baseUrl()}/v1/chat/completions`; }
 function modelsEndpoint() { return baseUrl().endsWith("/v1") ? `${baseUrl()}/models` : `${baseUrl()}/v1/models`; }
 function cleanModel(value) { return typeof value === "string" && /^[A-Za-z0-9._:/-]{1,160}$/.test(value.trim()) ? value.trim() : ""; }
+function cleanConversationId(value) { return typeof value === "string" && /^[A-Za-z0-9._:-]{1,120}$/.test(value.trim()) ? value.trim() : ""; }
+function conversationIdFromMessages(messages) { return `local-${String(latestUserText(messages) || Date.now()).slice(0, 64).replace(/[^A-Za-z0-9]+/g, "-")}`; }
 function parseJson(text) { try { return JSON.parse(text); } catch { return null; } }
 function preview(value) { return String(value || "").replace(/\s+/g, " ").slice(0, 240); }
 function previewContent(value) { return Array.isArray(value) ? value.map((part) => part?.type || "part").join(",") : preview(value); }
