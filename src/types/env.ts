@@ -13,4 +13,6 @@ export interface Env {
   PROXYIP?: string;
   PROXY_FAIL_COOLDOWN_MS?: string;
   ENABLE_LOGS?: string;
+  ADMIN_PASSWORD?: string;
+  ADMIN_SESSION_SECRET?: string;
 }
