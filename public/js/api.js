@@ -1,4 +1,5 @@
 import { getAdminSettings } from "./admin.js";
+import { getMemoryEnabled } from "./memory.js";
 
 function getRuntimeOptions() {
   const value = getAdminSettings();
@@ -21,6 +22,7 @@ export async function sendChat(messages, model, options = {}) {
       model,
       thinking: Boolean(options.thinking),
       webSearch: Boolean(options.webSearch),
+      memory: getMemoryEnabled(),
       runtime: getRuntimeOptions(),
     }),
   });
