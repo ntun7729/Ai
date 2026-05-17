@@ -304,6 +304,7 @@ function parseProviderResponse(text, model, chatUrl) {
 
 function parseServerSentEvents(text) {
   let answer = "";
+  let reasoning = "";
 
   for (const line of text.split(/\r?\n/)) {
     if (!line.startsWith("data:")) continue;
@@ -312,14 +313,20 @@ function parseServerSentEvents(text) {
     if (!payload || payload === "[DONE]") continue;
 
     const chunk = parseJson(payload);
-    const content = chunk?.choices?.[0]?.delta?.content;
+    const delta = chunk?.choices?.[0]?.delta;
 
-    if (typeof content === "string") {
-      answer += content;
+    if (typeof delta?.content === "string") {
+      answer += delta.content;
+    }
+
+    if (typeof delta?.reasoning_content === "string") {
+      reasoning += delta.reasoning_content;
+    } else if (typeof delta?.reasoning === "string") {
+      reasoning += delta.reasoning;
     }
   }
 
-  return answer;
+  return answer || reasoning;
 }
 
 function parseJson(text) {
