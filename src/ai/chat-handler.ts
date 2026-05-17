@@ -1,5 +1,6 @@
 import { getConfig } from "../config/env";
 import { errorResponse, jsonResponse } from "../http/json";
+import { addMemoryContext, captureMemoryFromText, latestUserText } from "../memory/store";
 import { buildSearchContext, messageHasUrl } from "../search/web-search";
 import type { Env } from "../types/env";
 import { createChatCompletion } from "./client";
@@ -12,14 +13,23 @@ export async function handleChat(request: Request, env: Env): Promise<Response> 
     const parsed = parseChatRequest(body);
     const config = getConfig(env, parsed.runtime);
     const selectedModel = parsed.model || config.model;
-    const shouldUseWeb = parsed.webSearch || messageHasUrl(parsed.messages);
+    const memoryEnabled = parsed.memory !== false;
+
+    if (memoryEnabled) {
+      await captureMemoryFromText(env, latestUserText(parsed.messages));
+    }
+
+    const withMemory = await addMemoryContext(env, parsed.messages, memoryEnabled);
+    const shouldUseWeb = parsed.webSearch || messageHasUrl(withMemory);
     const preparedMessages = shouldUseWeb
-      ? await addWebResults(env, parsed.messages)
-      : parsed.messages;
+      ? await addWebResults(env, withMemory)
+      : withMemory;
 
     log(config.logsEnabled, "chat.request", {
       model: selectedModel,
       webSearch: shouldUseWeb,
+      memory: memoryEnabled,
+      memoryStorage: env.DB ? "d1" : "none",
       messageCount: preparedMessages.length,
     });
 
