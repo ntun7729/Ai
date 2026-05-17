@@ -1,5 +1,5 @@
-import type { Env } from "../types/env";
 import type { ChatMessage } from "../ai/types";
+import type { Env } from "../types/env";
 
 export interface SearchResult {
   title: string;
@@ -7,15 +7,23 @@ export interface SearchResult {
   snippet: string;
 }
 
+const SEARCH_RESULT_LIMIT = 5;
+const REQUEST_TIMEOUT_MS = 8000;
+
 export async function buildSearchContext(env: Env, messages: ChatMessage[]): Promise<string> {
   const query = getLatestUserText(messages);
   if (!query) return "";
 
   const results = await searchWeb(env, query);
-  if (results.length === 0) return "";
+  if (results.length === 0) {
+    return [
+      "Web search was requested, but the Worker could not reach direct search sources or a configured fallback.",
+      "Do not invent search results. Tell the user web search failed and suggest trying again or configuring SEARCH_FETCH_PROXY_URL.",
+    ].join(" ");
+  }
 
   return [
-    "Use these fresh web search results when they are relevant. Cite sources by title and URL in the answer.",
+    "Fresh web search results fetched directly by the Cloudflare Worker. Use them only when relevant. Cite source URLs in the answer.",
     ...results.map((result, index) => [
       `[${index + 1}] ${result.title}`,
       result.url,
@@ -25,62 +33,67 @@ export async function buildSearchContext(env: Env, messages: ChatMessage[]): Pro
 }
 
 export async function searchWeb(env: Env, query: string): Promise<SearchResult[]> {
-  const apiKey = (env.SEARCH_API_KEY || env.BRAVE_SEARCH_API_KEY || "").trim();
+  const results: SearchResult[] = [];
 
-  if (apiKey) {
-    const results = await searchBrave(query, apiKey).catch(() => []);
-    if (results.length > 0) return results;
+  results.push(...await googleNewsSearch(env, query).catch(() => []));
+  if (results.length < SEARCH_RESULT_LIMIT) {
+    results.push(...await duckDuckGoLiteSearch(env, query).catch(() => []));
+  }
+  if (results.length < SEARCH_RESULT_LIMIT) {
+    results.push(...await proxyResultSearch(env, query).catch(() => []));
   }
 
-  const proxyUrl = (env.SEARCH_PROXY_URL || "").trim();
-  if (proxyUrl) {
-    const results = await searchViaProxy(query, proxyUrl).catch(() => []);
-    if (results.length > 0) return results;
-  }
-
-  return [];
+  return uniqueResults(results).slice(0, SEARCH_RESULT_LIMIT);
 }
 
-async function searchBrave(query: string, apiKey: string): Promise<SearchResult[]> {
-  const url = new URL("https://api.search.brave.com/res/v1/web/search");
+async function googleNewsSearch(env: Env, query: string): Promise<SearchResult[]> {
+  const url = new URL("https://news.google.com/rss/search");
   url.searchParams.set("q", query);
-  url.searchParams.set("count", "5");
-  url.searchParams.set("text_decorations", "false");
-  url.searchParams.set("safesearch", "moderate");
+  url.searchParams.set("hl", "en-US");
+  url.searchParams.set("gl", "US");
+  url.searchParams.set("ceid", "US:en");
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      Accept: "application/json",
-      "X-Subscription-Token": apiKey,
-    },
-  });
+  const text = await fetchText(env, url.toString());
+  const items = [...text.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, SEARCH_RESULT_LIMIT);
 
-  if (!response.ok) return [];
-
-  const data = await response.json() as {
-    web?: {
-      results?: Array<{ title?: string; url?: string; description?: string }>;
+  return items.map((match) => {
+    const item = match[1] || "";
+    return {
+      title: decodeXml(extractTag(item, "title")),
+      url: normalizeGoogleNewsUrl(decodeXml(extractTag(item, "link"))),
+      snippet: decodeXml(extractTag(item, "description")).replace(/<[^>]+>/g, " "),
     };
-  };
-
-  return (data.web?.results || [])
-    .map((item) => ({
-      title: clean(item.title),
-      url: clean(item.url),
-      snippet: clean(item.description),
-    }))
-    .filter((item) => item.title && item.url)
-    .slice(0, 5);
+  }).filter((result) => result.title && result.url);
 }
 
-async function searchViaProxy(query: string, proxyUrl: string): Promise<SearchResult[]> {
-  const url = new URL(proxyUrl);
+async function duckDuckGoLiteSearch(env: Env, query: string): Promise<SearchResult[]> {
+  const url = new URL("https://lite.duckduckgo.com/lite/");
   url.searchParams.set("q", query);
 
-  const response = await fetch(url.toString(), {
-    headers: { Accept: "application/json" },
-  });
+  const html = await fetchText(env, url.toString());
+  const results: SearchResult[] = [];
+  const matches = html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g);
 
+  for (const match of matches) {
+    const href = decodeHtml(match[1] || "");
+    const title = clean(decodeHtml((match[2] || "").replace(/<[^>]+>/g, " ")));
+    const realUrl = normalizeDuckDuckGoUrl(href);
+    if (!title || !realUrl || realUrl.includes("duckduckgo.com")) continue;
+    results.push({ title, url: realUrl, snippet: "" });
+    if (results.length >= SEARCH_RESULT_LIMIT) break;
+  }
+
+  return results;
+}
+
+async function proxyResultSearch(env: Env, query: string): Promise<SearchResult[]> {
+  const proxy = (env.SEARCH_PROXY_URL || "").trim();
+  if (!proxy) return [];
+
+  const url = new URL(proxy);
+  url.searchParams.set("q", query);
+
+  const response = await fetchWithTimeout(url.toString(), { headers: { Accept: "application/json" } });
   if (!response.ok) return [];
 
   const data = await response.json() as {
@@ -93,8 +106,45 @@ async function searchViaProxy(query: string, proxyUrl: string): Promise<SearchRe
       url: clean(item.url),
       snippet: clean(item.snippet || item.description),
     }))
-    .filter((item) => item.title && item.url)
-    .slice(0, 5);
+    .filter((item) => item.title && item.url);
+}
+
+async function fetchText(env: Env, targetUrl: string): Promise<string> {
+  const direct = await fetchWithTimeout(targetUrl, {
+    headers: {
+      Accept: "text/html,application/rss+xml,application/xml;q=0.9,*/*;q=0.8",
+      "User-Agent": "Mozilla/5.0 CloudflareWorker AIChatSearch/1.0",
+    },
+  }).catch(() => null);
+
+  if (direct?.ok) return direct.text();
+
+  const proxyText = await fetchTextViaProxy(env, targetUrl).catch(() => "");
+  if (proxyText) return proxyText;
+
+  throw new Error("direct web fetch failed");
+}
+
+async function fetchTextViaProxy(env: Env, targetUrl: string): Promise<string> {
+  const proxy = (env.SEARCH_FETCH_PROXY_URL || env.SEARCH_PROXY_URL || "").trim();
+  if (!proxy) return "";
+
+  const url = new URL(proxy);
+  url.searchParams.set("url", targetUrl);
+
+  const response = await fetchWithTimeout(url.toString(), {
+    headers: { Accept: "text/html,application/rss+xml,application/xml;q=0.9,*/*;q=0.8" },
+  });
+
+  if (!response.ok) return "";
+  return response.text();
+}
+
+function fetchWithTimeout(input: string, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(id));
 }
 
 function getLatestUserText(messages: ChatMessage[]): string {
@@ -109,6 +159,58 @@ function getLatestUserText(messages: ChatMessage[]): string {
   }
 
   return "";
+}
+
+function extractTag(xml: string, tag: string): string {
+  return xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`))?.[1] || "";
+}
+
+function normalizeGoogleNewsUrl(url: string): string {
+  return clean(url);
+}
+
+function normalizeDuckDuckGoUrl(url: string): string {
+  const cleaned = clean(url);
+  if (!cleaned) return "";
+  if (cleaned.startsWith("//")) return `https:${cleaned}`;
+  if (cleaned.startsWith("/l/?")) {
+    const parsed = new URL(`https://duckduckgo.com${cleaned}`);
+    return parsed.searchParams.get("uddg") || "";
+  }
+  if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned;
+  return "";
+}
+
+function uniqueResults(results: SearchResult[]): SearchResult[] {
+  const seen = new Set<string>();
+  const out: SearchResult[] = [];
+
+  for (const result of results) {
+    const key = result.url || result.title;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      title: clean(result.title),
+      url: clean(result.url),
+      snippet: clean(result.snippet),
+    });
+  }
+
+  return out;
+}
+
+function decodeXml(value: string): string {
+  return decodeHtml(value.replace(/^<!\[CDATA\[|\]\]>$/g, ""));
+}
+
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .trim();
 }
 
 function clean(value: unknown): string {
