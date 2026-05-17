@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { addSearchContext } from "./search-local.mjs";
 
 const root = process.cwd();
 const publicDir = join(root, "public");
@@ -21,9 +22,9 @@ createServer(async (req, res) => {
 
     await serveStatic(url.pathname, res);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown local server error";
-    log("error", { message });
-    sendJson(res, 500, { error: message });
+    const msg = message(error);
+    log("error", { message: msg });
+    sendJson(res, 500, { error: msg });
   }
 }).listen(port, host, () => {
   const info = health();
@@ -70,18 +71,24 @@ async function handleChat(req, res) {
   const startedAt = Date.now();
   const body = await readJson(req);
   const model = cleanModel(body.model) || modelFromEnv();
-  const thinking = body.thinking === true;
-  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const requestedThinking = body.thinking === true;
+  const thinking = shouldSendThinking(model, requestedThinking);
+  const rawMessages = Array.isArray(body.messages) ? body.messages : [];
+  const wantsSearch = body.webSearch === true || messageWantsSearch(rawMessages.at(-1)?.content);
 
   if (!apiKey()) return sendJson(res, 500, { error: "Missing AI_API_KEY in .dev.vars" });
-  if (messages.length === 0) return sendJson(res, 400, { error: "Request body must include a non-empty messages array" });
+  if (rawMessages.length === 0) return sendJson(res, 400, { error: "Request body must include a non-empty messages array" });
+
+  const messages = wantsSearch ? await addSearchContext(env, rawMessages, log) : rawMessages;
 
   log("chat.request", {
     model,
     thinking,
+    requestedThinking,
+    webSearch: wantsSearch,
     messageCount: messages.length,
-    lastRole: messages.at(-1)?.role,
-    lastTextPreview: preview(messages.at(-1)?.content),
+    lastRole: rawMessages.at(-1)?.role,
+    lastTextPreview: previewContent(rawMessages.at(-1)?.content),
     chatUrl: chatEndpoint(),
   });
 
@@ -104,7 +111,12 @@ async function handleChat(req, res) {
     return sendJson(res, response.status, { error: data?.error?.message || preview(text), provider: { model, thinking, messageCount: messages.length } });
   }
 
-  const answer = providerAnswer(text, model);
+  const answer = providerAnswerOrEmpty(text);
+  if (!answer) {
+    log("chat.empty_answer", { model, bodyPreview: preview(text) });
+    return sendJson(res, 200, { answer: "The provider returned an empty answer. Please try again.", model });
+  }
+
   log("chat.answer", { model, answerPreview: preview(answer) });
   return sendJson(res, 200, { answer, model });
 }
@@ -155,6 +167,20 @@ async function handleTitle(req, res) {
   return sendJson(res, 200, { title });
 }
 
+function shouldSendThinking(model, thinking) {
+  if (!thinking) return false;
+  const lower = model.toLowerCase();
+  if (lower.includes("mistral") || lower.includes("mixtral")) return false;
+  return true;
+}
+
+function messageWantsSearch(content) {
+  const text = Array.isArray(content)
+    ? content.find((part) => part?.type === "text")?.text || ""
+    : String(content || "");
+  return /\b(web\s*search|websearch|search web|latest news|today news|current news)\b/i.test(text);
+}
+
 function callProvider(payload, accept) {
   return fetch(chatEndpoint(), {
     method: "POST",
@@ -163,16 +189,10 @@ function callProvider(payload, accept) {
   });
 }
 
-function providerAnswer(text, model) {
-  const answer = providerAnswerOrEmpty(text);
-  if (answer) return answer;
-  throw new Error(`AI provider returned no content from ${chatEndpoint()} using model ${model}`);
-}
-
 function providerAnswerOrEmpty(text) {
   const json = parseJson(text);
   const direct = json?.choices?.[0]?.message?.content;
-  if (typeof direct === "string" && direct.trim()) return direct;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
 
   let content = "";
   for (const line of text.split(/\r?\n/)) {
@@ -205,12 +225,14 @@ function modelsEndpoint() { return baseUrl().endsWith("/v1") ? `${baseUrl()}/mod
 function cleanModel(value) { return typeof value === "string" && /^[A-Za-z0-9._:/-]{1,160}$/.test(value.trim()) ? value.trim() : ""; }
 function parseJson(text) { try { return JSON.parse(text); } catch { return null; } }
 function preview(value) { return String(value || "").replace(/\s+/g, " ").slice(0, 240); }
+function previewContent(value) { return Array.isArray(value) ? value.map((part) => part?.type || "part").join(",") : preview(value); }
 function fallbackTitle(value) { return String(value || "").replace(/[.!?]+$/g, "").trim().split(/\s+/).slice(0, 5).join(" ") || "New chat"; }
 function cleanTitle(value) {
   const title = fallbackTitle(String(value || "").replace(/^Title:\s*/i, "").replace(/["'`]/g, ""));
   const lower = title.toLowerCase();
   return ["the user", "user gave", "assistant", "conversation", "response", "answer"].some((start) => lower.startsWith(start)) ? "" : title;
 }
+function message(error) { return error instanceof Error ? error.message : String(error); }
 async function readJson(req) { const chunks = []; for await (const chunk of req) chunks.push(chunk); const raw = Buffer.concat(chunks).toString("utf8"); return raw ? JSON.parse(raw) : {}; }
 async function loadDevVars(path) {
   const values = { ...process.env };
