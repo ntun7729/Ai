@@ -1,4 +1,4 @@
-import type { ChatContent, ChatMessage, ChatRequestBody } from "./types";
+import type { ChatContent, ChatContentPart, ChatMessage, ChatRequestBody } from "./types";
 
 const VALID_ROLES = new Set(["system", "user", "assistant"]);
 const MODEL_ID_PATTERN = /^[A-Za-z0-9._:/-]+$/;
@@ -54,7 +54,7 @@ function parseContent(value: unknown): ChatContent {
   return value.map(parseContentPart);
 }
 
-function parseContentPart(value: unknown): ChatContent[number] {
+function parseContentPart(value: unknown): ChatContentPart {
   if (!isRecord(value) || typeof value.type !== "string") {
     throw new Error("Invalid message content part");
   }
