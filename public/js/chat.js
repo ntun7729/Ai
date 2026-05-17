@@ -1,33 +1,50 @@
 import { sendChat } from "./api.js";
-import { addMessage, autoResizeTextarea, setLoading, setupMobileSidebar } from "./dom.js";
+import {
+  addConversationItem,
+  addMessage,
+  autoResizeTextarea,
+  clearMessages,
+  resetConversationList,
+  setLoading,
+  setModelLabels,
+  setupMobileSidebar,
+} from "./dom.js";
 
 const systemMessage = {
   role: "system",
   content: "You are a helpful AI assistant on a small website.",
 };
 
-const conversation = [systemMessage];
+let conversation = [systemMessage];
+let hasConversationItem = false;
 
 export function setupChat(elements) {
-  const { form, prompt, sendButton, messages, promptChips } = elements;
+  const { form, prompt, sendButton, messages, promptChips, modelSelect, modelBadge, mobileModelLabel, newChatButton } = elements;
 
   setupMobileSidebar(elements);
   setupPromptInput(prompt, form);
   setupPromptChips(promptChips, prompt);
+  setupModelPicker(modelSelect, modelBadge, mobileModelLabel);
+  setupNewChat(newChatButton, elements);
 
   addMessage(messages, "assistant", "Hi! Ask me something and I will help.");
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await submitMessage({ prompt, sendButton, messages });
+    await submitMessage({ prompt, sendButton, messages, modelSelect, conversationList: elements.conversationList });
   });
 }
 
-async function submitMessage({ prompt, sendButton, messages }) {
+async function submitMessage({ prompt, sendButton, messages, modelSelect, conversationList }) {
   const userText = prompt.value.trim();
   if (!userText || sendButton.disabled) return;
 
   document.body.classList.add("has-chat");
+  if (!hasConversationItem) {
+    addConversationItem(conversationList, makeConversationTitle(userText));
+    hasConversationItem = true;
+  }
+
   prompt.value = "";
   autoResizeTextarea(prompt);
   conversation.push({ role: "user", content: userText });
@@ -35,7 +52,7 @@ async function submitMessage({ prompt, sendButton, messages }) {
   setLoading(sendButton, true);
 
   try {
-    const answer = await sendChat(conversation);
+    const answer = await sendChat(conversation, modelSelect.value);
     conversation.push({ role: "assistant", content: answer });
     addMessage(messages, "assistant", answer || "No answer returned.");
   } catch (error) {
@@ -66,4 +83,32 @@ function setupPromptChips(promptChips, prompt) {
       prompt.focus();
     });
   }
+}
+
+function setupModelPicker(modelSelect, modelBadge, mobileModelLabel) {
+  setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
+
+  modelSelect.addEventListener("change", () => {
+    setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
+  });
+}
+
+function setupNewChat(newChatButton, elements) {
+  if (!newChatButton) return;
+
+  newChatButton.addEventListener("click", () => {
+    conversation = [systemMessage];
+    hasConversationItem = false;
+    document.body.classList.remove("has-chat");
+    clearMessages(elements.messages);
+    resetConversationList(elements.conversationList);
+    addMessage(elements.messages, "assistant", "Hi! Ask me something and I will help.");
+    elements.prompt.value = "";
+    autoResizeTextarea(elements.prompt);
+    elements.prompt.focus();
+  });
+}
+
+function makeConversationTitle(text) {
+  return text.length > 32 ? `${text.slice(0, 32)}...` : text;
 }
