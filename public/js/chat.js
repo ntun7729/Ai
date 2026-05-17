@@ -13,8 +13,10 @@ import {
   showAttachmentPreview,
 } from "./dom.js";
 
+const STORAGE_KEY = "ai-chat.sessions.v1";
 const STOP_WORDS = new Set(["a", "an", "the", "is", "are", "to", "of", "and", "or", "in", "on", "for", "with", "what", "where", "when", "why", "how"]);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_STORED_SESSIONS = 30;
 const SUGGESTED_MODELS = [
   "openai/gpt-oss-120b",
   "openai/gpt-oss-20b",
@@ -39,6 +41,8 @@ function createSession(model) {
     hasUserMessage: false,
     messages: [createSystemMessage(model)],
     displayMessages: [{ role: "assistant", content: `New chat started with ${model}.` }],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
   };
 }
 
@@ -47,6 +51,7 @@ let activeSessionId = "";
 let pendingAttachment = null;
 let webSearchToggle = null;
 let modelPickerUi = null;
+let bootedFromStorage = false;
 
 export function setupChat(elements) {
   const { form, prompt, promptChips, modelSelect, modelBadge, mobileModelLabel, newChatButton } = elements;
@@ -61,10 +66,23 @@ export function setupChat(elements) {
   setupModelPicker(modelSelect, modelBadge, mobileModelLabel, elements);
   setupNewChat(newChatButton, elements);
 
-  const firstSession = createSession(modelSelect.value);
-  firstSession.displayMessages = [{ role: "assistant", content: "Hi! Ask me something and I will help." }];
-  sessions = [firstSession];
-  activeSessionId = firstSession.id;
+  const restored = loadStoredState(modelSelect.value);
+  if (restored.sessions.length > 0) {
+    sessions = restored.sessions;
+    activeSessionId = restored.activeSessionId || sessions[0].id;
+    bootedFromStorage = true;
+    const active = getActiveSession() || sessions[0];
+    activeSessionId = active.id;
+    modelSelect.value = active.model;
+    setModelLabels(active.model, modelBadge, mobileModelLabel);
+    document.body.classList.toggle("has-chat", active.hasUserMessage);
+  } else {
+    const firstSession = createSession(modelSelect.value);
+    firstSession.displayMessages = [{ role: "assistant", content: "Hi! Ask me something and I will help." }];
+    sessions = [firstSession];
+    activeSessionId = firstSession.id;
+  }
+
   renderActiveSession(elements);
   loadProviderModels(modelSelect, modelBadge, mobileModelLabel, elements);
 
@@ -93,10 +111,12 @@ async function submitMessage(elements) {
   hideAttachmentPreview(attachmentPreview);
 
   session.hasUserMessage = true;
+  session.updatedAt = Date.now();
   if (session.title === "New chat") session.title = makeLocalTitle(userText || attachment?.name || "Image");
   session.messages.push({ role: "user", content: providerContent });
   session.displayMessages.push({ role: "user", content: displayText });
   addMessage(messages, "user", displayText);
+  saveState();
   renderSidebar(elements);
   setLoading(sendButton, true);
 
@@ -107,11 +127,15 @@ async function submitMessage(elements) {
     });
     session.messages.push({ role: "assistant", content: answer });
     session.displayMessages.push({ role: "assistant", content: answer || "No answer returned." });
+    session.updatedAt = Date.now();
     addMessage(messages, "assistant", answer || "No answer returned.");
+    saveState();
   } catch (error) {
     const message = error instanceof Error ? error.message : "Something went wrong.";
     session.displayMessages.push({ role: "error", content: message });
+    session.updatedAt = Date.now();
     addMessage(messages, "error", message);
+    saveState();
   } finally {
     setLoading(sendButton, false);
     prompt.focus();
@@ -389,11 +413,12 @@ async function loadProviderModels(modelSelect, modelBadge, mobileModelLabel, ele
       option.textContent = model;
       modelSelect.append(option);
     }
-    modelSelect.value = preferredModel;
+    const active = getActiveSession();
+    modelSelect.value = active?.model && uniqueModels.includes(active.model) ? active.model : preferredModel;
     setModelLabels(modelSelect.value, modelBadge, mobileModelLabel);
     modelPickerUi?.sync();
     const session = getActiveSession();
-    if (session && !session.hasUserMessage) {
+    if (session && !session.hasUserMessage && !bootedFromStorage) {
       session.model = preferredModel;
       session.messages = [createSystemMessage(preferredModel)];
       session.displayMessages = [{ role: "assistant", content: "Hi! Ask me something and I will help." }];
@@ -421,6 +446,7 @@ function startNewSession(elements, model, showNotice) {
   autoResizeTextarea(elements.prompt);
   modelPickerUi?.sync();
   renderActiveSession(elements);
+  saveState();
   elements.prompt.focus();
 }
 
@@ -432,9 +458,37 @@ function selectSession(elements, sessionId) {
   setModelLabels(session.model, elements.modelBadge, elements.mobileModelLabel);
   modelPickerUi?.sync();
   renderActiveSession(elements);
+  saveState();
   document.body.classList.toggle("has-chat", session.hasUserMessage);
   document.body.classList.remove("sidebar-open");
   if (elements.sidebarBackdrop) elements.sidebarBackdrop.hidden = true;
+}
+
+function deleteSession(elements, sessionId) {
+  const session = sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  const ok = window.confirm(`Delete "${session.title}"?`);
+  if (!ok) return;
+
+  sessions = sessions.filter((item) => item.id !== sessionId);
+  if (sessions.length === 0) {
+    const next = createSession(elements.modelSelect.value);
+    next.displayMessages = [{ role: "assistant", content: "Hi! Ask me something and I will help." }];
+    sessions = [next];
+    activeSessionId = next.id;
+  } else if (activeSessionId === sessionId) {
+    activeSessionId = sessions[0].id;
+  }
+
+  const active = getActiveSession();
+  if (active) {
+    elements.modelSelect.value = active.model;
+    setModelLabels(active.model, elements.modelBadge, elements.mobileModelLabel);
+  }
+  modelPickerUi?.sync();
+  document.body.classList.toggle("has-chat", Boolean(active?.hasUserMessage));
+  renderActiveSession(elements);
+  saveState();
 }
 
 function renderActiveSession(elements) {
@@ -446,11 +500,99 @@ function renderActiveSession(elements) {
 }
 
 function renderSidebar(elements) {
-  renderConversationList(elements.conversationList, sessions, activeSessionId, (sessionId) => selectSession(elements, sessionId));
+  renderConversationList(
+    elements.conversationList,
+    sessions,
+    activeSessionId,
+    (sessionId) => selectSession(elements, sessionId),
+    (sessionId) => deleteSession(elements, sessionId),
+  );
 }
 
 function getActiveSession() {
   return sessions.find((session) => session.id === activeSessionId);
+}
+
+function saveState() {
+  try {
+    const visibleOrActive = sessions
+      .filter((session) => session.hasUserMessage || session.id === activeSessionId)
+      .slice(0, MAX_STORED_SESSIONS)
+      .map(sanitizeSessionForStorage);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ activeSessionId, sessions: visibleOrActive }));
+  } catch (error) {
+    console.warn("Could not save chat history", error);
+  }
+}
+
+function loadStoredState(defaultModel) {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { sessions: [], activeSessionId: "" };
+    const parsed = JSON.parse(raw);
+    const storedSessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+    const cleaned = storedSessions.map((session) => restoreSession(session, defaultModel)).filter(Boolean);
+    return { sessions: cleaned, activeSessionId: String(parsed.activeSessionId || "") };
+  } catch (error) {
+    console.warn("Could not load chat history", error);
+    return { sessions: [], activeSessionId: "" };
+  }
+}
+
+function sanitizeSessionForStorage(session) {
+  return {
+    id: session.id,
+    model: session.model,
+    title: session.title,
+    hasUserMessage: session.hasUserMessage,
+    createdAt: session.createdAt || Date.now(),
+    updatedAt: session.updatedAt || Date.now(),
+    messages: session.messages.map(sanitizeMessageForStorage),
+    displayMessages: session.displayMessages.map((message) => ({
+      role: message.role,
+      content: String(message.content || ""),
+    })),
+  };
+}
+
+function sanitizeMessageForStorage(message) {
+  if (typeof message.content === "string") return { role: message.role, content: message.content };
+  if (!Array.isArray(message.content)) return { role: message.role, content: "" };
+
+  const textPart = message.content.find((part) => part?.type === "text");
+  const imageCount = message.content.filter((part) => part?.type === "image_url").length;
+  const text = textPart?.text || "Describe this image";
+  return {
+    role: message.role,
+    content: imageCount > 0 ? `${text}\n[Image was attached in an earlier browser session]` : text,
+  };
+}
+
+function restoreSession(session, defaultModel) {
+  if (!session || typeof session !== "object") return null;
+  const model = String(session.model || defaultModel);
+  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const displayMessages = Array.isArray(session.displayMessages) ? session.displayMessages : [];
+
+  const restoredMessages = messages
+    .filter((message) => message && typeof message === "object" && typeof message.role === "string")
+    .map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : "" }));
+
+  if (!restoredMessages.some((message) => message.role === "system")) restoredMessages.unshift(createSystemMessage(model));
+
+  return {
+    id: String(session.id || (crypto.randomUUID ? crypto.randomUUID() : Date.now())),
+    model,
+    title: String(session.title || "New chat"),
+    hasUserMessage: Boolean(session.hasUserMessage),
+    messages: restoredMessages,
+    displayMessages: displayMessages.length > 0 ? displayMessages.map((message) => ({
+      role: message.role || "assistant",
+      content: String(message.content || ""),
+    })) : [{ role: "assistant", content: "Hi! Ask me something and I will help." }],
+    createdAt: Number(session.createdAt || Date.now()),
+    updatedAt: Number(session.updatedAt || Date.now()),
+  };
 }
 
 function makeLocalTitle(text) {
