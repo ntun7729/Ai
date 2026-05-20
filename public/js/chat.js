@@ -122,7 +122,30 @@ async function submitMessage(elements) {
   setLoading(sendButton, true);
 
   let streamedAnswer = "";
+  let streamFrame = 0;
   const assistantMessage = addMessage(messages, "assistant", "");
+
+  const renderStreamText = () => {
+    streamFrame = 0;
+    const scroller = messages.closest(".conversation");
+    const shouldStick = isNearBottom(scroller);
+
+    assistantMessage.classList.add("streaming");
+    assistantMessage.style.whiteSpace = "pre-wrap";
+    assistantMessage.textContent = streamedAnswer;
+    assistantMessage.dataset.rawContent = streamedAnswer;
+
+    if (scroller) {
+      scroller.style.scrollBehavior = "auto";
+      scroller.style.overflowAnchor = "none";
+      if (shouldStick) scroller.scrollTop = scroller.scrollHeight;
+    }
+  };
+
+  const scheduleStreamText = () => {
+    if (streamFrame) return;
+    streamFrame = window.requestAnimationFrame(renderStreamText);
+  };
 
   try {
     const answer = await streamChat(session.messages, modelSelect.value, {
@@ -133,21 +156,34 @@ async function submitMessage(elements) {
     }, {
       onDelta: (content) => {
         streamedAnswer += content;
-        updateMessage(assistantMessage, streamedAnswer);
+        scheduleStreamText();
       },
       onError: (message) => {
         if (!streamedAnswer) updateMessage(assistantMessage, message);
       },
     });
 
+    if (streamFrame) {
+      window.cancelAnimationFrame(streamFrame);
+      streamFrame = 0;
+    }
+
     const finalAnswer = answer || streamedAnswer || "No answer returned.";
+    assistantMessage.classList.remove("streaming");
+    assistantMessage.style.whiteSpace = "";
     updateMessage(assistantMessage, finalAnswer);
     session.messages.push({ role: "assistant", content: finalAnswer });
     session.displayMessages.push({ role: "assistant", content: finalAnswer });
     session.updatedAt = Date.now();
     saveState();
   } catch (error) {
+    if (streamFrame) {
+      window.cancelAnimationFrame(streamFrame);
+      streamFrame = 0;
+    }
     const message = error instanceof Error ? error.message : "Something went wrong.";
+    assistantMessage.classList.remove("streaming");
+    assistantMessage.style.whiteSpace = "";
     updateMessage(assistantMessage, message);
     assistantMessage.classList.add("error");
     session.displayMessages.push({ role: "error", content: message });
@@ -157,6 +193,11 @@ async function submitMessage(elements) {
     setLoading(sendButton, false);
     prompt.focus();
   }
+}
+
+function isNearBottom(scroller) {
+  if (!scroller) return false;
+  return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 220;
 }
 
 function createWebSearchToggle() {
